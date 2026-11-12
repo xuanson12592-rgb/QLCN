@@ -202,6 +202,11 @@ async function loadReport(applySelectedFilters = false) {
 function populateDropdowns(data) {
     fillSelect("filter-kv", uniqueValues(data, "khu vực"), "Menu thả xuống tìm khu vực");
     fillSelect("filter-dvkh", uniqueValues(data, "Nhân sự DVKH"), "Nhân sự DVKH");
+    const statuses = [...new Set(data
+        .map(item => String(item["Tình Trạng"] ?? "").trim())
+        .filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, "vi"));
+    fillSelect("filter-status", statuses, "Tất cả tình trạng");
 
     collectorOptions = uniqueValues(data, "Nhân viên thu");
     if (currentUser && currentUser.role === "user" && currentUser.nvCode) {
@@ -322,6 +327,7 @@ function executeFilter() {
 
     const contractQuery = document.getElementById("filter-hd").value.toLowerCase().trim();
     const filterVal = (document.getElementById("selectMucDoXuLy")?.value || "").trim().toUpperCase();
+    const statusFilter = (document.getElementById("filter-status")?.value || "").trim().toLocaleLowerCase("vi");
     const { area, staff } = appliedFilters;
     const allCollectorsSelected = collectorOptions.length > 0
         && collectorOptions.every(collector => selectedStaffs.includes(collector));
@@ -341,6 +347,8 @@ function executeFilter() {
     renderSummary(filtered);
     const detailRows = filtered.filter(item => {
         if (!isUnpaid(item)) return false;
+        const status = String(item["Tình Trạng"] ?? "").trim().toLocaleLowerCase("vi");
+        if (statusFilter && status !== statusFilter) return false;
         const rowVal = normalizeProcessingLevel(item["Mức độ xử lý"]).toUpperCase();
         const selectedLevel = normalizeProcessingLevel(filterVal).toUpperCase();
         const matchMucDo = !filterVal || rowVal === selectedLevel;
@@ -562,3 +570,4 @@ document.addEventListener("keydown", event => {
 });
 document.getElementById("filter-hd").addEventListener("input", scheduleFilter);
 document.getElementById("selectMucDoXuLy").addEventListener("change", executeFilter);
+document.getElementById("filter-status").addEventListener("change", executeFilter);

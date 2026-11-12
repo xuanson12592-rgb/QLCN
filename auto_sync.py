@@ -331,25 +331,56 @@ def build_report(assignments, current, comparison=None):
     if comparison_day_column is None and len(comparison.columns) > 4:
       comparison_day_column = comparison.iloc[:, 4]
     if comparison_contract is not None and comparison_day_column is not None:
-      for contract, date_value in zip(comparison_contract, comparison_day_column):
-        key = normalize_contract(contract)
-        day = payment_day(date_value)
-        if key and day is not None:
-          previous_day_by_contract[key] = day
+      comparison_keys = comparison_contract.astype(str).str.strip().str.upper()
+      payment_dates = pd.to_datetime(
+          comparison_day_column, dayfirst=True, errors="coerce", format="mixed"
+      )
+      numeric_dates = comparison_day_column.map(
+          lambda value: float(value)
+          if pd.api.types.is_number(value)
+          and not isinstance(value, (bool, pd.Timestamp, datetime))
+          else float("nan")
+      )
+      excel_serials = numeric_dates > 31
+      if excel_serials.any():
+        payment_dates.loc[excel_serials] = pd.to_datetime(
+            numeric_dates.loc[excel_serials],
+            unit="D",
+            origin="1899-12-30",
+            errors="coerce",
+        )
+      short_day_values = numeric_dates.between(1, 31)
+      payment_dates.loc[short_day_values] = pd.to_datetime(
+          "1900-01-" + numeric_dates.loc[short_day_values].astype("int64").astype(str),
+          errors="coerce",
+      )
+      yearless_dates = payment_dates.notna() & payment_dates.dt.year.lt(1900)
+      for index, value in payment_dates.loc[yearless_dates].items():
+        inferred_year = today.year
+        if (value.month, value.day) > (today.month, today.day):
+          inferred_year -= 1
+        payment_dates.at[index] = pd.Timestamp(
+            year=inferred_year, month=value.month, day=value.day
+        )
+      valid_payments = pd.DataFrame({
+          "__hd": comparison_keys,
+          "__payment_date": payment_dates,
+      }).dropna(subset=["__payment_date"])
+      latest_payment_dates = valid_payments.groupby("__hd")["__payment_date"].max()
+      previous_day_by_contract = latest_payment_dates.dt.day.to_dict()
 
   report = current_rows.merge(assignment_rows, on="__hd", how="left", sort=False)
   has_loc_assignment = report["__loc_match"].fillna(False).astype(bool)
   previous_day = report["__previous_date"].map(payment_day)
   fallback_day = report["__hd"].map(previous_day_by_contract)
-  previous_day = previous_day.where(previous_day.notna(), fallback_day).fillna(0)
-  loc_delay = pd.to_numeric(previous_day, errors="coerce").fillna(0).astype("int64")
+  reference_day = previous_day.where(previous_day.notna(), fallback_day)
+  reference_day = pd.to_numeric(reference_day, errors="coerce")
   fpt_delay = pd.to_numeric(report["__fpt_overdue"], errors="coerce").fillna(0).astype("int64")
 
-  cycle_due_day = loc_delay.where(has_loc_assignment, 0).astype("int64")
-  overdue_days = ((today.day - cycle_due_day).clip(lower=0)
-                  .where((today.day > cycle_due_day) & (cycle_due_day > 0), 0)
-                  .astype("int64"))
-  overdue_days = overdue_days.where(has_loc_assignment | (fpt_delay > 0), fpt_delay)
+  cycle_due_day = reference_day.fillna(0).astype("int64")
+  calculated_overdue = (today.day - cycle_due_day).clip(lower=0)
+  calculated_overdue = calculated_overdue.where(today.day > cycle_due_day, 0)
+  overdue_days = calculated_overdue.where(reference_day.notna(), fpt_delay)
   overdue_days = overdue_days.fillna(0).astype("int64")
 
   assigned_area = report["__assigned_area"].fillna("")
@@ -374,7 +405,7 @@ def build_report(assignments, current, comparison=None):
   )
   processing_level = overdue_days.map(severity)
   report["Mức độ xử lý"] = processing_level.where(
-      has_loc_assignment & overdue_days.gt(0), "BÌNH THƯỜNG"
+      overdue_days.gt(0), "BÌNH THƯỜNG"
   )
   report["Số Ngày TT muộn so với T-1"] = overdue_days
   report["Tuổi thọ HD"] = report["__age"].fillna("")
