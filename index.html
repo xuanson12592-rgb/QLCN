@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Quản lý hợp đồng công nợ</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
+
+    <style>
+        body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 15px;
+    min-height: 100vh;
+    box-sizing: border-box;
+
+    /* Thiết lập hình ảnh làm nền tràn toàn màn hình */
+    background-image: url('background.jpg');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    position: relative;
+}
+
+/* Lớp phủ làm mờ và giảm độ sáng ảnh nền */
+body::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    /* Tăng/giảm độ mờ mỏng tùy thích bằng độ đục màu đen rgba (0.45 = mờ 45%) */
+    background-color: rgba(0, 0, 0, 0.45); 
+    backdrop-filter: blur(4px); /* Hiệu ứng làm mờ nhòe hình ảnh (Blur) */
+    z-index: -1;
+}
+
+/* Đảm bảo khung đăng nhập và bảng báo cáo nằm nổi phía trên nền mờ */
+#login-box, #main-app {
+    position: relative;
+    z-index: 1;
+}
+
+/* Bo góc và làm nổi bật bảng dữ liệu trên nền ảnh */
+#table-container, .header-bar, .form-container {
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(5px);
+}
+
+        /* Khung Đăng nhập */
+        #login-box {
+            max-width: 360px;
+            margin: 80px auto;
+            padding: 25px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        #login-box h3 {
+            margin-top: 0;
+            color: #333;
+            text-align: center;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 8px 10px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        .btn-login {
+            width: 100%;
+            padding: 10px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .btn-login:hover {
+            background-color: #0056b3;
+        }
+
+        /* Giao diện Báo cáo */
+        #main-app {
+            display: none;
+        }
+
+        .header-bar {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 15px;
+            background: #fff;
+            padding: 10px 15px;
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .form-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 12px;
+            border: 1px solid #ccc;
+            background-color: #fff;
+            border-radius: 5px;
+            align-items: center;
+        }
+
+        .form-container input, 
+        .form-container select, 
+        .form-container button {
+            padding: 6px 10px;
+            font-size: 13px;
+            border: 1px solid #767676;
+            border-radius: 3px;
+        }
+
+        .form-container button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        #table-container {
+            margin-top: 15px;
+            overflow-x: auto;
+            max-height: 600px;
+            border: 1px solid #ddd;
+            background: #fff;
+        }
+
+        #summary-container {
+            margin-top: 15px;
+            overflow-x: auto;
+            border: 1px solid #ddd;
+            background: #fff;
+        }
+
+        #summary-container h3 {
+            margin: 0;
+            padding: 10px;
+            font-size: 15px;
+        }
+
+        #summary-table {
+            min-width: 1100px;
+            font-size: 12px;
+        }
+
+        #summary-table td:not(:first-child) {
+            text-align: right;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 13px;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px 10px;
+            text-align: left;
+            white-space: nowrap;
+        }
+
+        th.name-col,
+        td.name-cell {
+            width: 180px;
+            min-width: 180px;
+            max-width: 180px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        th {
+            background-color: #e9ecef;
+            font-weight: bold;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        tr:hover { background-color: #f1f1f1; }
+
+        .info-count {
+            margin-top: 10px;
+            font-weight: bold;
+            color: #007bff;
+        }
+
+        .urgent-row {
+            background-color: #ffe6e6 !important;
+            color: #d9534f;
+            font-weight: bold;
+        }
+
+        .btn-logout {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            padding: 5px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .report-tabs {
+            display: flex;
+            gap: 6px;
+            margin: 0 0 12px;
+            border-bottom: 1px solid #cbd2d9;
+        }
+
+        .report-tab {
+            padding: 10px 16px;
+            border: 1px solid transparent;
+            border-bottom: 0;
+            border-radius: 5px 5px 0 0;
+            background: rgba(255, 255, 255, 0.82);
+            color: #39434d;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .report-tab:hover {
+            background: #fff;
+        }
+
+        .report-tab.is-active {
+            border-color: #cbd2d9;
+            background: #fff;
+            color: #075e69;
+            box-shadow: inset 0 3px #087f8c;
+        }
+
+        .report-tab:focus-visible {
+            outline: 2px solid #087f8c;
+            outline-offset: 2px;
+        }
+
+        .tab-panel[hidden] {
+            display: none;
+        }
+
+        #summary-container {
+            margin-top: 0;
+            border-radius: 4px;
+        }
+
+        #summary-container h3 {
+            color: #263b40;
+        }
+
+        #summary-table th {
+            background: #e7f0ef;
+        }
+
+        .form-container {
+            margin-bottom: 10px;
+        }
+
+        .form-container .select2-container {
+            flex: 0 0 200px;
+            width: 200px !important;
+            min-width: 180px;
+            font-size: 13px;
+        }
+
+        .select2-container {
+            width: 200px !important;
+            min-width: 180px;
+        }
+
+        .shared-filters {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            flex: 1 1 auto;
+            margin-bottom: 0;
+        }
+
+        .shared-filters .select2-container {
+            flex: 0 0 200px;
+            width: 200px !important;
+        }
+
+        .collector-filter {
+            position: relative;
+            flex: 0 0 240px;
+            min-width: 200px;
+        }
+
+        .collector-filter-button {
+            width: 100%;
+            min-height: 31px;
+            padding: 6px 10px;
+            overflow: hidden;
+            background: #fff;
+            color: #333;
+            text-align: left;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+
+        .collector-filter-button:disabled {
+            background: #e9ecef;
+            color: #555;
+            cursor: not-allowed;
+        }
+
+        .collector-filter-menu {
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            z-index: 10;
+            width: 100%;
+            min-width: 240px;
+            max-height: 320px;
+            overflow-y: auto;
+            padding: 8px;
+            border: 1px solid #adb5bd;
+            border-radius: 4px;
+            background: #fff;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+        }
+
+        .collector-filter-menu[hidden] {
+            display: none;
+        }
+
+        .collector-filter-search {
+            width: 100%;
+            margin-bottom: 8px;
+            padding: 7px 8px;
+            box-sizing: border-box;
+            border: 1px solid #adb5bd;
+            border-radius: 3px;
+            font-size: 13px;
+        }
+
+        .collector-filter-option {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 6px 4px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .collector-filter-option input {
+            margin: 0;
+        }
+
+        .collector-select-all {
+            border-bottom: 1px solid #dee2e6;
+            margin-bottom: 4px;
+            padding-bottom: 9px;
+            font-weight: bold;
+        }
+
+        .shared-filters .btn-view-report {
+            min-height: 31px;
+            padding: 6px 14px;
+            background-color: #007bff;
+            color: #fff;
+            border: 0;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .shared-filters .btn-view-report:hover {
+            background-color: #0056b3;
+        }
+
+        .form-container .select2-container--default .select2-selection--single {
+            height: 31px;
+            border: 1px solid #767676;
+            border-radius: 3px;
+        }
+
+        .form-container .select2-container--default .select2-selection--single .select2-selection__rendered {
+            line-height: 29px;
+            color: #333;
+        }
+
+        .form-container .select2-container--default .select2-selection--single .select2-selection__arrow {
+            height: 29px;
+        }
+
+        .select2-container--default .select2-results__option--highlighted[aria-selected] {
+            background-color: #087f8c;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+
+            .report-tabs {
+                gap: 2px;
+            }
+
+            .report-tab {
+                flex: 1;
+                padding: 9px 6px;
+                font-size: 12px;
+            }
+
+            .form-container .select2-container {
+                flex-basis: 100%;
+            }
+
+            .shared-filters {
+                flex-basis: 100%;
+                order: 2;
+            }
+
+            .collector-filter {
+                flex-basis: 100%;
+            }
+
+            .btn-logout { order: 3; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 1. Màn hình Đăng nhập -->
+    <div id="login-box">
+        <h3>ĐĂNG NHẬP HỆ THỐNG</h3>
+        <div class="input-group">
+            <label>Tên đăng nhập (Username):</label>
+            <input type="text" id="username" placeholder="Nhập tên đăng nhập...">
+        </div>
+        <div class="input-group">
+            <label>Mật khẩu:</label>
+            <input type="password" id="password" placeholder="Nhập mật khẩu...">
+        </div>
+        <button class="btn-login" onclick="handleLogin()">Đăng nhập</button>
+        <p id="login-error" style="color: red; font-size: 12px; margin-top: 10px; display: none; text-align: center;"></p>
+    </div>
+
+    <!-- 2. Màn hình Báo cáo Quản lý -->
+    <div id="main-app">
+        <div class="header-bar">
+            <div>
+                <strong>Xin chào: </strong><span id="user-display" style="color: #007bff; font-weight: bold;"></span>
+                <span id="role-display" style="font-size: 12px; color: #666; margin-left: 5px;"></span>
+            </div>
+
+            <div class="shared-filters" aria-label="Bộ lọc báo cáo dùng chung">
+                <select id="filter-kv" aria-label="Lọc theo khu vực">
+                    <option value="">Khu vực</option>
+                </select>
+
+                <select id="filter-dvkh" aria-label="Lọc theo nhân sự DVKH">
+                    <option value="">Nhân sự DVKH</option>
+                </select>
+
+                <div class="collector-filter" data-collector-filter>
+                    <button type="button" class="collector-filter-button"
+                        aria-haspopup="true" aria-controls="collector-filter-menu-header" aria-expanded="false">
+                        Chọn nhân viên thu (0 đã chọn)
+                    </button>
+                    <div class="collector-filter-menu" id="collector-filter-menu-header" hidden>
+                        <input type="search" class="collector-filter-search"
+                            placeholder="Tìm tên nhân viên..." aria-label="Tìm tên nhân viên thu">
+                        <label class="collector-filter-option collector-select-all">
+                            <input type="checkbox" class="select-all-staff">
+                            <span>Chọn tất cả</span>
+                        </label>
+                        <div class="collector-filter-options" role="group" aria-label="Danh sách nhân viên thu"></div>
+                    </div>
+                </div>
+
+                <button type="button" class="btn-view-report" onclick="loadReport(true)">
+                    Xem báo cáo
+                </button>
+            </div>
+            <button class="btn-logout" onclick="handleLogout()">Đăng xuất</button>
+        </div>
+
+        <div class="report-tabs" role="tablist" aria-label="Chọn loại báo cáo">
+            <button type="button" class="report-tab is-active" id="tab-summary" role="tab"
+                aria-selected="true" aria-controls="panel-summary" data-report-tab="summary">
+                📊 Báo cáo tổng hợp
+            </button>
+            <button type="button" class="report-tab" id="tab-detail" role="tab"
+                aria-selected="false" aria-controls="panel-detail" data-report-tab="detail" tabindex="-1">
+                📋 Báo cáo chi tiết
+            </button>
+        </div>
+
+        <section id="panel-summary" class="tab-panel is-active" role="tabpanel" aria-labelledby="tab-summary">
+            <div id="summary-container"></div>
+        </section>
+
+        <section id="panel-detail" class="tab-panel" role="tabpanel" aria-labelledby="tab-detail" hidden>
+            <div class="form-container">
+                <input type="text" id="filter-hd" placeholder="Ô trống để tìm HD">
+                    <select id="selectMucDoXuLy" aria-label="Lọc mức độ xử lý">
+                        <option value="">Mức độ xử lý</option>
+                        <option value="CỰC KỲ GẤP">CỰC KỲ GẤP</option>
+                        <option value="GẤP">GẤP</option>
+                        <option value="CẦN THEO DÕI">CẦN THEO DÕI</option>
+                    </select>
+                <div class="collector-filter" data-collector-filter>
+                    <button type="button" class="collector-filter-button"
+                        aria-haspopup="true" aria-controls="collector-filter-menu-detail" aria-expanded="false">
+                        Chọn nhân viên thu (0 đã chọn)
+                    </button>
+                    <div class="collector-filter-menu" id="collector-filter-menu-detail" hidden>
+                        <input type="search" class="collector-filter-search"
+                            placeholder="Tìm tên nhân viên..." aria-label="Tìm tên nhân viên thu">
+                        <label class="collector-filter-option collector-select-all">
+                            <input type="checkbox" class="select-all-staff">
+                            <span>Chọn tất cả</span>
+                        </label>
+                        <div class="collector-filter-options" role="group" aria-label="Danh sách nhân viên thu"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="info-count" class="info-count"></div>
+            <div id="table-container"></div>
+        </section>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
