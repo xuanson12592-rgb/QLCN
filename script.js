@@ -279,9 +279,10 @@ function syncCollectorControls() {
 function filterCollectorOptions(filter) {
     const query = filter.querySelector(".collector-filter-search").value
         .trim()
-        .toLocaleLowerCase("vi");
+        .toLowerCase();
     filter.querySelectorAll(".collector-filter-options .collector-filter-option").forEach(option => {
-        option.hidden = !option.dataset.staffName.toLocaleLowerCase("vi").includes(query);
+        const labelText = option.textContent.trim().toLowerCase();
+        option.style.display = labelText.includes(query) ? "flex" : "none";
     });
 }
 
