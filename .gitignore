@@ -3,3 +3,4 @@ credentials.json
 *.xlsx
 *.xls
 __pycache__/
+.vercel
