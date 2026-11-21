@@ -43,9 +43,16 @@ let selectedStaffs = [];
 const IMPORT_STORAGE_KEY = "qlcn_assignment_import_v1";
 let assignmentImport = null;   // {fileName, importedAt, map: {HD: {collector, dvkh, prevDay}}}
 
+const PREV_STORAGE_KEY = "qlcn_prevmonth_import_v1";
+let prevMonthImport = null;    // {fileName, importedAt, map: {HD: {prevDay, prevDate}}}
+
 // Moi tai khoan mot ngan luu import rieng tren cung trinh duyet
 function importStorageKey() {
     return IMPORT_STORAGE_KEY + "_" + (currentUser ? currentUser.username : "guest");
+}
+
+function prevMonthStorageKey() {
+    return PREV_STORAGE_KEY + "_" + (currentUser ? currentUser.username : "guest");
 }
 
 function loadAssignmentImport() {
@@ -62,6 +69,13 @@ function loadAssignmentImport() {
         assignmentImport = parsed && parsed.map ? parsed : null;
     } catch (e) {
         assignmentImport = null;
+    }
+    try {
+        const saved = localStorage.getItem(prevMonthStorageKey());
+        const parsed = saved ? JSON.parse(saved) : null;
+        prevMonthImport = parsed && parsed.map ? parsed : null;
+    } catch (e) {
+        prevMonthImport = null;
     }
 }
 
@@ -116,20 +130,40 @@ function severityForLateDays(days) {
     return "BÌNH THƯỜNG";
 }
 
+// Tra ve {day, label} ngay TT thang truoc cua HD: uu tien file Import thang T-, roi cot ngay trong file Import thang T
+function importPrevInfo(hd) {
+    const key = normImportHd(hd);
+    const p = prevMonthImport && prevMonthImport.map[key];
+    if (p && p.prevDay != null) {
+        return { day: p.prevDay, label: p.prevDate || ("Ngày " + p.prevDay) };
+    }
+    const t = assignmentImport && assignmentImport.map[key];
+    if (t && t.prevDay != null) {
+        return { day: t.prevDay, label: "Ngày " + t.prevDay };
+    }
+    return null;
+}
+
 // Du lieu goc + anh xa phan cong tu file import (neu co)
 function effectiveData() {
-    if (!assignmentImport || !assignmentImport.map) return globalData;
-    const map = assignmentImport.map;
+    const tMap = assignmentImport && assignmentImport.map;
+    const pMap = prevMonthImport && prevMonthImport.map;
+    if (!tMap && !pMap) return globalData;
     const todayDay = new Date().getDate();
     return globalData.map(item => {
-        const m = map[normImportHd(item.HD)];
-        if (!m) return item;
+        const key = normImportHd(item.HD);
+        const t = tMap && tMap[key];
+        const p = pMap && pMap[key];
+        if (!t && !p) return item;
         const clone = { ...item };
-        if (m.collector) clone["Nhân viên thu"] = m.collector;
-        if (m.dvkh) clone["Nhân sự DVKH"] = m.dvkh;
-        if (m.prevDay != null && isUnpaid(clone)) {
+        if (t) {
+            if (t.collector) clone["Nhân viên thu"] = t.collector;
+            if (t.dvkh) clone["Nhân sự DVKH"] = t.dvkh;
+        }
+        const info = importPrevInfo(key);
+        if (info && isUnpaid(clone)) {
             // HD con no + da qua ngay TT thang truoc => tre todayDay - prevDay ngay
-            const lateDays = Math.max(0, todayDay - m.prevDay);
+            const lateDays = Math.max(0, todayDay - info.day);
             clone["Số Ngày TT muộn so với T-1"] = String(lateDays);
             clone["Mức độ xử lý"] = severityForLateDays(lateDays);
         }
@@ -184,25 +218,40 @@ async function parseImportRows(file) {
     return XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
 }
 
-function renderImportStatus() {
-    const el = document.getElementById("import-status");
+function renderStatusLine(elId, importObj, onClear) {
+    const el = document.getElementById(elId);
     if (!el) return;
-    if (!assignmentImport) {
+    if (!importObj) {
         el.hidden = true;
         el.innerHTML = "";
         return;
     }
-    const count = Object.keys(assignmentImport.map).length;
-    const d = new Date(assignmentImport.importedAt);
+    const count = Object.keys(importObj.map).length;
+    const d = new Date(importObj.importedAt);
     const when = `${d.toLocaleDateString("vi-VN")} ${d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`;
     el.hidden = false;
-    el.innerHTML = `📄 ${escapeHtml(assignmentImport.fileName)} — ${count.toLocaleString("vi-VN")} HĐ — ${when} <a id="import-clear" title="Xóa dữ liệu đã import">Xóa</a>`;
-    el.querySelector("#import-clear").addEventListener("click", clearAssignmentImport);
+    el.innerHTML = `📄 ${escapeHtml(importObj.fileName)} — ${count.toLocaleString("vi-VN")} HĐ — ${when} <a class="import-clear-link" title="Xóa dữ liệu đã import">Xóa</a>`;
+    el.querySelector(".import-clear-link").addEventListener("click", onClear);
+}
+
+function renderImportStatus() {
+    renderStatusLine("import-status", assignmentImport, clearAssignmentImport);
+    renderStatusLine("import-status-prev", prevMonthImport, clearPrevMonthImport);
 }
 
 function clearAssignmentImport() {
     assignmentImport = null;
     localStorage.removeItem(importStorageKey());
+    renderImportStatus();
+    if (globalData.length) {
+        populateDropdowns(effectiveData());
+        executeFilter();
+    }
+}
+
+function clearPrevMonthImport() {
+    prevMonthImport = null;
+    localStorage.removeItem(prevMonthStorageKey());
     renderImportStatus();
     if (globalData.length) {
         populateDropdowns(effectiveData());
@@ -217,18 +266,32 @@ function downloadImportTemplate() {
         ["987654321", "NGUYEN VAN A", "LE VAN C", "20/10/2026"],
         ["555666777", "PHAM VAN D", "NGO THI E", 5],
     ];
+    saveTemplateXlsx(headers, rows, "mau_import_thang_T.xlsx", "Mau import T");
+}
+
+function downloadPrevMonthTemplate() {
+    const headers = ["Số HĐ", "Ngày thanh toán T-"];
+    const rows = [
+        ["123456789", "15/10/2026"],
+        ["987654321", "20/10/2026"],
+        ["555666777", "05/10/2026"],
+    ];
+    saveTemplateXlsx(headers, rows, "mau_import_thang_T-1.xlsx", "Mau import T-");
+}
+
+function saveTemplateXlsx(headers, rows, filename, sheetName) {
     if (typeof XLSX !== "undefined") {
         const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-        ws["!cols"] = [{ wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
+        ws["!cols"] = headers.map(() => ({ wch: 20 }));
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Mau import");
-        XLSX.writeFile(wb, "mau_import_thang_T.xlsx");
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        XLSX.writeFile(wb, filename);
         return;
     }
     const csv = "\uFEFF" + [headers, ...rows].map(r => r.join(",")).join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    a.download = "mau_import_thang_T.csv";
+    a.download = filename.replace(/\.xlsx$/, ".csv");
     a.click();
     URL.revokeObjectURL(a.href);
 }
@@ -265,6 +328,54 @@ async function handleImportFile(file) {
         ? `\n${withPrevDay.toLocaleString("vi-VN")} HĐ có ngày thanh toán T- → đã tính lại số ngày trễ.`
         : "\nKhông thấy cột Ngày thanh toán T- — giữ nguyên số ngày trễ từ hệ thống.";
     alert(`Đã import ${total.toLocaleString("vi-VN")} hợp đồng phân công tháng T từ file "${file.name}".` + dateNote);
+}
+
+// File thang T-: chi can So HD + Ngay thanh toan
+function findPrevMonthColumns(rows2d) {
+    const HD_NAMES = ["so hd", "hop dong", "so hop dong", "ma hd", "contract", "hd"];
+    for (let r = 0; r < Math.min(rows2d.length, 10); r++) {
+        const cells = rows2d[r].map(normImportText);
+        const hd = cells.findIndex(c => HD_NAMES.some(w => c === w || c.includes("hop dong")));
+        if (hd < 0) continue;
+        let date = cells.findIndex((c, i) => i !== hd &&
+            (c.includes("ngay") || c.includes("tt") || c.includes("thanh toan") || c.includes("nop")));
+        if (date < 0) date = hd === 0 ? 1 : 0;
+        return { headerRow: r, hd, date };
+    }
+    // Khong co header: dong dau trong giong du lieu thi doc tu dong 0
+    const first = rows2d[0] || [];
+    const looksLikeData = /\d/.test(String(first[0] ?? ""));
+    return { headerRow: looksLikeData ? -1 : 0, hd: 0, date: 1 };
+}
+
+async function handlePrevMonthFile(file) {
+    const rows2d = await parseImportRows(file);
+    const loc = findPrevMonthColumns(rows2d);
+    const map = {};
+    for (let r = loc.headerRow + 1; r < rows2d.length; r++) {
+        const row = rows2d[r];
+        const hd = normImportHd(row[loc.hd]);
+        if (!hd) continue;
+        const raw = row[loc.date];
+        const prevDay = parsePrevPayDay(raw);
+        if (prevDay == null) continue;
+        const prevDate = raw instanceof Date
+            ? raw.toLocaleDateString("vi-VN")
+            : String(raw).trim();
+        map[hd] = { prevDay, prevDate };
+    }
+    const total = Object.keys(map).length;
+    if (total === 0) {
+        throw new Error("Không đọc được ngày thanh toán nào. File tháng T- cần có cột: Số HĐ | Ngày thanh toán.");
+    }
+    prevMonthImport = { fileName: file.name, importedAt: new Date().toISOString(), map };
+    localStorage.setItem(prevMonthStorageKey(), JSON.stringify(prevMonthImport));
+    renderImportStatus();
+    if (globalData.length) {
+        populateDropdowns(effectiveData());
+        executeFilter();
+    }
+    alert(`Đã import ngày thanh toán T- cho ${total.toLocaleString("vi-VN")} hợp đồng từ file "${file.name}".\nSố ngày trễ sẽ tính lại theo ngày KH đã trả tháng trước.`);
 }
 
 function escapeHtml(value) {
@@ -409,6 +520,7 @@ function handleLogout() {
     currentUser = null;
     globalData = [];
     assignmentImport = null;
+    prevMonthImport = null;
     renderImportStatus();
     setActiveReportTab("summary");
     if (refreshTimer) {
@@ -748,11 +860,7 @@ function renderTable(data) {
         return;
     }
 
-    const importMap = assignmentImport && assignmentImport.map;
-    const showPrevDay = Boolean(importMap) && data.some(row => {
-        const m = importMap[normImportHd(row.HD)];
-        return m && m.prevDay != null;
-    });
+    const showPrevDay = data.some(row => importPrevInfo(row.HD) !== null);
     const tableColumns = showPrevDay ? [...REPORT_COLUMNS, "Ngày TT T-1"] : REPORT_COLUMNS;
 
     let html = "<table><thead><tr>";
@@ -768,8 +876,8 @@ function renderTable(data) {
         tableColumns.forEach(header => {
             let value = row[header] ?? "";
             if (header === "Ngày TT T-1") {
-                const m = importMap[normImportHd(row.HD)];
-                value = m && m.prevDay != null ? `Ngày ${m.prevDay}` : "";
+                const info = importPrevInfo(row.HD);
+                value = info ? info.label : "";
             }
             if (header === "Tên KH") {
                 html += `<td class="name-cell" title="${escapeHtml(String(value))}">${escapeHtml(value)}</td>`;
@@ -880,6 +988,13 @@ document.getElementById("import-file").addEventListener("change", event => {
     const file = event.target.files && event.target.files[0];
     if (file) {
         handleImportFile(file).catch(err => alert("Lỗi import: " + err.message));
+    }
+    event.target.value = "";
+});
+document.getElementById("import-file-prev").addEventListener("change", event => {
+    const file = event.target.files && event.target.files[0];
+    if (file) {
+        handlePrevMonthFile(file).catch(err => alert("Lỗi import: " + err.message));
     }
     event.target.value = "";
 });
