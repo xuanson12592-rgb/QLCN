@@ -41,15 +41,28 @@ let collectorOptions = [];
 let selectedStaffs = [];
 
 const IMPORT_STORAGE_KEY = "qlcn_assignment_import_v1";
-let assignmentImport = null;   // {fileName, importedAt, map: {HD: {collector, dvkh}}}
-try {
-    const saved = localStorage.getItem(IMPORT_STORAGE_KEY);
-    if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.map) assignmentImport = parsed;
+let assignmentImport = null;   // {fileName, importedAt, map: {HD: {collector, dvkh, prevDay}}}
+
+// Moi tai khoan mot ngan luu import rieng tren cung trinh duyet
+function importStorageKey() {
+    return IMPORT_STORAGE_KEY + "_" + (currentUser ? currentUser.username : "guest");
+}
+
+function loadAssignmentImport() {
+    try {
+        const legacy = localStorage.getItem(IMPORT_STORAGE_KEY);
+        let saved = localStorage.getItem(importStorageKey());
+        if (!saved && legacy) {
+            // Don du lieu tu key cu (truoc khi tach theo tai khoan)
+            localStorage.setItem(importStorageKey(), legacy);
+            localStorage.removeItem(IMPORT_STORAGE_KEY);
+            saved = legacy;
+        }
+        const parsed = saved ? JSON.parse(saved) : null;
+        assignmentImport = parsed && parsed.map ? parsed : null;
+    } catch (e) {
+        assignmentImport = null;
     }
-} catch (e) {
-    assignmentImport = null;
 }
 
 function normImportText(value) {
@@ -189,7 +202,7 @@ function renderImportStatus() {
 
 function clearAssignmentImport() {
     assignmentImport = null;
-    localStorage.removeItem(IMPORT_STORAGE_KEY);
+    localStorage.removeItem(importStorageKey());
     renderImportStatus();
     if (globalData.length) {
         populateDropdowns(effectiveData());
@@ -242,7 +255,7 @@ async function handleImportFile(file) {
         throw new Error("Không đọc được hợp đồng nào. File cần có cột: Số HĐ, Nhân viên thu, Nhân sự DVKH (và Ngày thanh toán T- nếu có).");
     }
     assignmentImport = { fileName: file.name, importedAt: new Date().toISOString(), map };
-    localStorage.setItem(IMPORT_STORAGE_KEY, JSON.stringify(assignmentImport));
+    localStorage.setItem(importStorageKey(), JSON.stringify(assignmentImport));
     renderImportStatus();
     if (globalData.length) {
         populateDropdowns(effectiveData());
@@ -382,6 +395,8 @@ function handleLogin() {
         document.getElementById("filter-kv").value = "";
         document.getElementById("filter-dvkh").value = "";
         appliedFilters = { area: "", staff: "" };
+        loadAssignmentImport();
+        renderImportStatus();
         loadReport(true);
         return;
     }
@@ -393,6 +408,8 @@ function handleLogin() {
 function handleLogout() {
     currentUser = null;
     globalData = [];
+    assignmentImport = null;
+    renderImportStatus();
     setActiveReportTab("summary");
     if (refreshTimer) {
         clearInterval(refreshTimer);
