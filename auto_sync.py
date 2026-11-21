@@ -420,6 +420,28 @@ def build_report(assignments, current, comparison=None):
       "cực kỳ gấp": "CỰC KỲ GẤP",
       "cực gấp cần os xl ngay": "CỰC KỲ GẤP",
   }).fillna(processing_level.str.upper())
+
+  # HĐ co trong Loc AU nhung khong con trong file FPT = "Đã thanh toán".
+  fpt_contracts = set(current["__hd"])
+  paid_assignments = assignment_rows.loc[~assignment_rows["__hd"].isin(fpt_contracts)]
+  if not paid_assignments.empty:
+    paid_report = pd.DataFrame({
+        "khu vực": paid_assignments["__assigned_area"],
+        "HD": paid_assignments["__hd"],
+        "Tên KH": paid_assignments["__assigned_name"],
+        "Nhân sự DVKH": "",
+        "Nhân viên thu": paid_assignments["__collector"],
+        "Tình Trạng": "Đã thanh toán",
+        "Kết quả đối soát": "Đã thanh toán",
+        "Mức độ xử lý": "ĐÃ THANH TOÁN",
+        "Số Ngày TT muộn so với T-1": 0,
+        "Tuổi thọ HD": "",
+        "Trạng thái chăm sóc": "",
+    }, index=paid_assignments.index)
+    report = pd.concat(
+        [report, paid_report.loc[:, OUTPUT_COLUMNS]], ignore_index=True
+    )
+
   for column in ("khu vực", "Nhân sự DVKH", "Nhân viên thu"):
     report[column] = report[column].map(normalize_contract)
   return report

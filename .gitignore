@@ -4,3 +4,6 @@ credentials.json
 *.xls
 __pycache__/
 .vercel
+inside_profile/
+cron.log
+probe*.py
