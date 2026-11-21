@@ -236,6 +236,49 @@ body::before {
             cursor: pointer;
         }
 
+        .header-actions {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 4px;
+        }
+
+        .btn-import {
+            background-color: #0d6efd;
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .import-status {
+            font-size: 11px;
+            color: #2e7d32;
+            max-width: 260px;
+            text-align: right;
+        }
+
+        .import-status a {
+            color: #dc3545;
+            cursor: pointer;
+            margin-left: 6px;
+        }
+
+        .import-box {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .import-template {
+            font-size: 11px;
+            color: #0d6efd;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
         .report-tabs {
             display: flex;
             gap: 6px;
@@ -514,7 +557,17 @@ body::before {
                     Xem báo cáo
                 </button>
             </div>
-            <button class="btn-logout" onclick="handleLogout()">Đăng xuất</button>
+            <div class="header-actions">
+                <button class="btn-logout" onclick="handleLogout()">Đăng xuất</button>
+                <div class="import-box">
+                    <button type="button" class="btn-import" id="btn-import"
+                        title="File: Số HĐ | Nhân viên thu | Nhân sự DVKH | Ngày thanh toán T-"
+                        onclick="document.getElementById('import-file').click()">📥 Import tháng T</button>
+                    <a class="import-template" onclick="downloadImportTemplate()">File mẫu</a>
+                    <input type="file" id="import-file" accept=".xlsx,.xls,.csv" hidden>
+                    <div id="import-status" class="import-status" hidden></div>
+                </div>
+            </div>
         </div>
 
         <div class="report-tabs" role="tablist" aria-label="Chọn loại báo cáo">
@@ -568,6 +621,7 @@ body::before {
 
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

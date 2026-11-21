@@ -4,6 +4,18 @@ const userAccounts = {
     "Thaonn11": { pass: "123456", role: "user", nvCode: "Thaonn11" }
 };
 
+// Tai khoan nhan su DVKH: ten dang nhap = ten nhan su, pass chung 19006600.
+// dvkh khien nguoi dung chi xem duoc hop dong thuoc "Nhân sự DVKH" cua minh.
+const DVKH_PASSWORD = "19006600";
+[
+    "ACCT.NGAVTN", "CANHPC2", "CHIPTH", "DUNGDTM7", "GIANGTN7", "KHANHNH43",
+    "LAMLTT7", "LINHNPP", "MAINTN26", "NYDTY2", "PHUONGLND3", "PHUONGMTM2",
+    "QUYNHNHN4", "THUYLTP8", "TIENPTM2", "TRANGCTT11", "TRUCNTT28", "TUDTB",
+    "TUYENPTK4", "UYENPNL2", "XUANLTT7", "YENNTK16", "YENTTT9"
+].forEach(name => {
+    userAccounts[name] = { pass: DVKH_PASSWORD, role: "user", nvCode: "", dvkh: name };
+});
+
 const REPORT_COLUMNS = [
     "khu vực",
     "HD",
@@ -27,6 +39,220 @@ let filterTimer = null;
 let appliedFilters = { area: "", staff: "" };
 let collectorOptions = [];
 let selectedStaffs = [];
+
+const IMPORT_STORAGE_KEY = "qlcn_assignment_import_v1";
+let assignmentImport = null;   // {fileName, importedAt, map: {HD: {collector, dvkh}}}
+try {
+    const saved = localStorage.getItem(IMPORT_STORAGE_KEY);
+    if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.map) assignmentImport = parsed;
+    }
+} catch (e) {
+    assignmentImport = null;
+}
+
+function normImportText(value) {
+    return String(value ?? "")
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/đ/g, "d").replace(/Đ/g, "D")
+        .toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function normImportHd(value) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return String(value).replace(/\.0+$/, "").toUpperCase();
+    }
+    return String(value ?? "").trim().toUpperCase();
+}
+
+// Lay ngay trong thang tu ngay TT thang truoc (Date, serial Excel, "dd/mm", so 1-31)
+function parsePrevPayDay(value) {
+    if (value === null || value === undefined || value === "") return null;
+    if (value instanceof Date && !isNaN(value)) return value.getDate();
+    if (typeof value === "number" && Number.isFinite(value)) {
+        if (value >= 1 && value <= 31) return Math.floor(value);
+        if (value > 25569 && value < 80000) {
+            const d = new Date(Math.round((value - 25569) * 86400 * 1000));
+            return d.getUTCDate();
+        }
+        return null;
+    }
+    const text = String(value).trim();
+    if (!text) return null;
+    let m = text.match(/\d{4}[\/.-]\d{1,2}[\/.-](\d{1,2})/);   // yyyy-mm-dd -> ngay o cuoi
+    if (m) return parseInt(m[1], 10);
+    m = text.match(/(\d{1,2})\s*[\/.-]\s*\d{1,2}/);            // dd/mm hoac dd/mm/yyyy
+    if (m) {
+        const d = parseInt(m[1], 10);
+        return d >= 1 && d <= 31 ? d : null;
+    }
+    m = text.match(/\b(\d{1,2})\b/);                          // so le "15"
+    if (m) {
+        const d = parseInt(m[1], 10);
+        return d >= 1 && d <= 31 ? d : null;
+    }
+    return null;
+}
+
+// Cung nguong severity() trong auto_sync.py
+function severityForLateDays(days) {
+    if (days > 10) return "CỰC KỲ GẤP";
+    if (days > 5) return "GẤP";
+    if (days > 0) return "CẦN THEO DÕI";
+    return "BÌNH THƯỜNG";
+}
+
+// Du lieu goc + anh xa phan cong tu file import (neu co)
+function effectiveData() {
+    if (!assignmentImport || !assignmentImport.map) return globalData;
+    const map = assignmentImport.map;
+    const todayDay = new Date().getDate();
+    return globalData.map(item => {
+        const m = map[normImportHd(item.HD)];
+        if (!m) return item;
+        const clone = { ...item };
+        if (m.collector) clone["Nhân viên thu"] = m.collector;
+        if (m.dvkh) clone["Nhân sự DVKH"] = m.dvkh;
+        if (m.prevDay != null && isUnpaid(clone)) {
+            // HD con no + da qua ngay TT thang truoc => tre todayDay - prevDay ngay
+            const lateDays = Math.max(0, todayDay - m.prevDay);
+            clone["Số Ngày TT muộn so với T-1"] = String(lateDays);
+            clone["Mức độ xử lý"] = severityForLateDays(lateDays);
+        }
+        return clone;
+    });
+}
+
+function findImportColumns(rows2d) {
+    const HD_NAMES = ["so hd", "hop dong", "so hop dong", "ma hd", "contract", "hd"];
+    const COL_NAMES = ["nhan vien thu", "nv thu", "phan cong", "nhan vien thu cuoc", "collector"];
+    const DVKH_NAMES = ["nhan su dvkh", "dvkh", "nvvp au", "nhan su"];
+    for (let r = 0; r < Math.min(rows2d.length, 10); r++) {
+        const cells = rows2d[r].map(normImportText);
+        const hd = cells.findIndex(c => HD_NAMES.some(w => c === w || c.includes("hop dong")));
+        if (hd < 0) continue;
+        const collector = cells.findIndex(c => COL_NAMES.some(w => c.includes(w)));
+        const dvkh = cells.findIndex(c => DVKH_NAMES.some(w => c.includes(w)));
+        // Cot ngay thanh toan thang T- (thang truoc)
+        let prevDay = cells.findIndex(c =>
+            (c.includes("ngay") || c.includes("tt")) &&
+            (c.includes("t-") || c.includes("thang truoc") || c.includes("ky truoc")));
+        if (prevDay < 0) {
+            prevDay = cells.findIndex((c, i) =>
+                i !== hd && i !== collector && i !== dvkh &&
+                (c.includes("ngay thanh toan") || c.includes("ngay tt") || c.includes("ngay nop")));
+        }
+        return { headerRow: r, hd, collector, dvkh, prevDay };
+    }
+    return { headerRow: 0, hd: 0, collector: 1, dvkh: 2, prevDay: 3 };
+}
+
+function parseCsvText(text) {
+    const clean = text.replace(/^\uFEFF/, "");
+    const lines = clean.split(/\r?\n/).filter(line => line.trim() !== "");
+    const delim = lines[0].includes("\t") ? "\t" : lines[0].includes(";") ? ";" : ",";
+    return lines.map(line =>
+        line.split(delim).map(cell => cell.trim().replace(/^"|"$/g, ""))
+    );
+}
+
+async function parseImportRows(file) {
+    const ext = file.name.split(".").pop().toLowerCase();
+    if (ext === "csv") {
+        return parseCsvText(await file.text());
+    }
+    if (typeof XLSX === "undefined") {
+        throw new Error("Chưa tải được thư viện đọc Excel. Kiểm tra mạng rồi thử lại.");
+    }
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array", cellDates: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
+}
+
+function renderImportStatus() {
+    const el = document.getElementById("import-status");
+    if (!el) return;
+    if (!assignmentImport) {
+        el.hidden = true;
+        el.innerHTML = "";
+        return;
+    }
+    const count = Object.keys(assignmentImport.map).length;
+    const d = new Date(assignmentImport.importedAt);
+    const when = `${d.toLocaleDateString("vi-VN")} ${d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`;
+    el.hidden = false;
+    el.innerHTML = `📄 ${escapeHtml(assignmentImport.fileName)} — ${count.toLocaleString("vi-VN")} HĐ — ${when} <a id="import-clear" title="Xóa dữ liệu đã import">Xóa</a>`;
+    el.querySelector("#import-clear").addEventListener("click", clearAssignmentImport);
+}
+
+function clearAssignmentImport() {
+    assignmentImport = null;
+    localStorage.removeItem(IMPORT_STORAGE_KEY);
+    renderImportStatus();
+    if (globalData.length) {
+        populateDropdowns(effectiveData());
+        executeFilter();
+    }
+}
+
+function downloadImportTemplate() {
+    const headers = ["Số HĐ", "Nhân viên thu", "Nhân sự DVKH", "Ngày thanh toán T-"];
+    const rows = [
+        ["123456789", "NGUYEN VAN A", "TRAN THI B", 15],
+        ["987654321", "NGUYEN VAN A", "LE VAN C", "20/10/2026"],
+        ["555666777", "PHAM VAN D", "NGO THI E", 5],
+    ];
+    if (typeof XLSX !== "undefined") {
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        ws["!cols"] = [{ wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Mau import");
+        XLSX.writeFile(wb, "mau_import_thang_T.xlsx");
+        return;
+    }
+    const csv = "\uFEFF" + [headers, ...rows].map(r => r.join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    a.download = "mau_import_thang_T.csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+async function handleImportFile(file) {
+    const rows2d = await parseImportRows(file);
+    const loc = findImportColumns(rows2d);
+    const map = {};
+    let withPrevDay = 0;
+    for (let r = loc.headerRow + 1; r < rows2d.length; r++) {
+        const row = rows2d[r];
+        const hd = normImportHd(row[loc.hd]);
+        if (!hd) continue;
+        const prevDay = loc.prevDay >= 0 ? parsePrevPayDay(row[loc.prevDay]) : null;
+        if (prevDay != null) withPrevDay++;
+        map[hd] = {
+            collector: loc.collector >= 0 ? String(row[loc.collector] || "").trim().toUpperCase() : "",
+            dvkh: loc.dvkh >= 0 ? String(row[loc.dvkh] || "").trim().toUpperCase() : "",
+            prevDay,
+        };
+    }
+    const total = Object.keys(map).length;
+    if (total === 0) {
+        throw new Error("Không đọc được hợp đồng nào. File cần có cột: Số HĐ, Nhân viên thu, Nhân sự DVKH (và Ngày thanh toán T- nếu có).");
+    }
+    assignmentImport = { fileName: file.name, importedAt: new Date().toISOString(), map };
+    localStorage.setItem(IMPORT_STORAGE_KEY, JSON.stringify(assignmentImport));
+    renderImportStatus();
+    if (globalData.length) {
+        populateDropdowns(effectiveData());
+        executeFilter();
+    }
+    const dateNote = withPrevDay
+        ? `\n${withPrevDay.toLocaleString("vi-VN")} HĐ có ngày thanh toán T- → đã tính lại số ngày trễ.`
+        : "\nKhông thấy cột Ngày thanh toán T- — giữ nguyên số ngày trễ từ hệ thống.";
+    alert(`Đã import ${total.toLocaleString("vi-VN")} hợp đồng phân công tháng T từ file "${file.name}".` + dateNote);
+}
 
 function escapeHtml(value) {
     return String(value ?? "")
@@ -153,6 +379,9 @@ function handleLogin() {
         document.getElementById("role-display").textContent = currentUser.role === "admin"
             ? "(Quản trị viên)"
             : "(Nhân viên)";
+        document.getElementById("filter-kv").value = "";
+        document.getElementById("filter-dvkh").value = "";
+        appliedFilters = { area: "", staff: "" };
         loadReport(true);
         return;
     }
@@ -182,7 +411,7 @@ async function loadReport(applySelectedFilters = false) {
 
     try {
         globalData = await fetchGoogleSheetRows();
-        populateDropdowns(globalData);
+        populateDropdowns(effectiveData());
         if (applySelectedFilters) {
             appliedFilters = {
                 area: document.getElementById("filter-kv").value,
@@ -207,6 +436,23 @@ function populateDropdowns(data) {
         .filter(Boolean))]
         .sort((a, b) => a.localeCompare(b, "vi"));
     fillSelect("filter-status", statuses, "Tất cả tình trạng");
+
+    // Khoa bo loc DVKH theo tai khoan dang nhap (neu co)
+    const dvkhSelect = document.getElementById("filter-dvkh");
+    if (currentUser && currentUser.dvkh) {
+        const dvkhVal = String(currentUser.dvkh).trim().toUpperCase();
+        if (![...dvkhSelect.options].some(option => option.value === dvkhVal)) {
+            const option = document.createElement("option");
+            option.value = dvkhVal;
+            option.textContent = dvkhVal;
+            dvkhSelect.appendChild(option);
+        }
+        dvkhSelect.value = dvkhVal;
+        dvkhSelect.disabled = true;
+        appliedFilters.staff = dvkhVal;
+    } else {
+        dvkhSelect.disabled = false;
+    }
 
     collectorOptions = uniqueValues(data, "Nhân viên thu");
     if (currentUser && currentUser.role === "user" && currentUser.nvCode) {
@@ -332,7 +578,7 @@ function executeFilter() {
     const allCollectorsSelected = collectorOptions.length > 0
         && collectorOptions.every(collector => selectedStaffs.includes(collector));
 
-    const filtered = globalData.filter(item => {
+    const filtered = effectiveData().filter(item => {
         const contract = String(item.HD || "").toLowerCase();
         const matchContract = !contractQuery || contract.includes(contractQuery);
         const matchArea = !area || String(item["khu vực"] || "").trim().toUpperCase() === area.trim().toUpperCase();
@@ -361,37 +607,67 @@ function renderSummary(data) {
     const container = document.getElementById("summary-container");
     const groups = new Map();
 
-    data.forEach(item => {
-        const collector = String(item["Nhân viên thu"] || "").trim() || "Chưa phân công";
+    const getGroup = collector => {
         if (!groups.has(collector)) {
-            groups.set(collector, {
-                assigned: 0,
-                paid: 0,
-                cared: 0,
-                notCared: 0,
-            });
+            groups.set(collector, { assigned: 0, paid: 0, cared: 0, notCared: 0, late: 0 });
         }
+        return groups.get(collector);
+    };
 
-        const summary = groups.get(collector);
-        summary.assigned += 1;
-
-        const paymentStatus = String(item["Tình Trạng"] || "").trim().toLocaleLowerCase("vi");
-        const reconciliation = String(item["Kết quả đối soát"] || "").trim();
-        if (reconciliation
-            ? reconciliation === "Đã thanh toán"
-            : /đã\s*(thanh toán|nộp tiền|thu|đóng)|đã\s*tt|paid|hoàn thành/.test(paymentStatus)) {
-            summary.paid += 1;
-        }
-
+    const countCareLate = (item, summary) => {
         const careStatus = String(item["Trạng thái chăm sóc"] || "").trim();
         if (careStatus === "Đã chăm sóc") summary.cared += 1;
         if (careStatus === "Chưa chăm sóc") summary.notCared += 1;
-
         const daysValue = item["Số Ngày TT muộn so với T-1"];
         if (daysValue !== "" && daysValue != null && Number.isFinite(Number(daysValue)) && Number(daysValue) > 0) {
             summary.late += 1;
         }
-    });
+    };
+
+    const importMap = assignmentImport && assignmentImport.map;
+    if (importMap) {
+        // Danh sach phan cong thang moi lay tu file import:
+        // HĐ co trong import ma khong con trong du lieu ton => "Đã thanh toán"
+        const unpaidByHd = new Map();
+        data.forEach(item => {
+            if (isUnpaid(item)) unpaidByHd.set(normImportHd(item.HD), item);
+        });
+        for (const [hd, m] of Object.entries(importMap)) {
+            const collector = String(m.collector || "").trim() || "Chưa phân công";
+            const summary = getGroup(collector);
+            summary.assigned += 1;
+            const row = unpaidByHd.get(hd);
+            if (row) {
+                countCareLate(row, summary);
+            } else {
+                summary.paid += 1;
+            }
+        }
+        // HĐ con ton trong du lieu nhung chua co trong danh sach import
+        data.forEach(item => {
+            if (!isUnpaid(item) || importMap[normImportHd(item.HD)]) return;
+            const collector = String(item["Nhân viên thu"] || "").trim() || "Chưa phân công";
+            const summary = getGroup(collector);
+            summary.assigned += 1;
+            countCareLate(item, summary);
+        });
+    } else {
+        data.forEach(item => {
+            const collector = String(item["Nhân viên thu"] || "").trim() || "Chưa phân công";
+            const summary = getGroup(collector);
+            summary.assigned += 1;
+
+            const paymentStatus = String(item["Tình Trạng"] || "").trim().toLocaleLowerCase("vi");
+            const reconciliation = String(item["Kết quả đối soát"] || "").trim();
+            if (reconciliation
+                ? reconciliation === "Đã thanh toán"
+                : /đã\s*(thanh toán|nộp tiền|thu|đóng)|đã\s*tt|paid|hoàn thành/.test(paymentStatus)) {
+                summary.paid += 1;
+            }
+
+            countCareLate(item, summary);
+        });
+    }
 
     const headers = [
         "NHÂN VIÊN THU",
@@ -455,8 +731,15 @@ function renderTable(data) {
         return;
     }
 
+    const importMap = assignmentImport && assignmentImport.map;
+    const showPrevDay = Boolean(importMap) && data.some(row => {
+        const m = importMap[normImportHd(row.HD)];
+        return m && m.prevDay != null;
+    });
+    const tableColumns = showPrevDay ? [...REPORT_COLUMNS, "Ngày TT T-1"] : REPORT_COLUMNS;
+
     let html = "<table><thead><tr>";
-    REPORT_COLUMNS.forEach(header => {
+    tableColumns.forEach(header => {
         const isNameColumn = header === "Tên KH";
         html += `<th class="${isNameColumn ? "name-col" : ""}">${escapeHtml(header)}</th>`;
     });
@@ -465,8 +748,12 @@ function renderTable(data) {
     data.forEach(row => {
         const urgent = normalizeProcessingLevel(row["Mức độ xử lý"]) === "CỰC KỲ GẤP";
         html += `<tr class="${urgent ? "urgent-row" : ""}">`;
-        REPORT_COLUMNS.forEach(header => {
-            const value = row[header] ?? "";
+        tableColumns.forEach(header => {
+            let value = row[header] ?? "";
+            if (header === "Ngày TT T-1") {
+                const m = importMap[normImportHd(row.HD)];
+                value = m && m.prevDay != null ? `Ngày ${m.prevDay}` : "";
+            }
             if (header === "Tên KH") {
                 html += `<td class="name-cell" title="${escapeHtml(String(value))}">${escapeHtml(value)}</td>`;
                 return;
@@ -571,3 +858,12 @@ document.addEventListener("keydown", event => {
 document.getElementById("filter-hd").addEventListener("input", scheduleFilter);
 document.getElementById("selectMucDoXuLy").addEventListener("change", executeFilter);
 document.getElementById("filter-status").addEventListener("change", executeFilter);
+
+document.getElementById("import-file").addEventListener("change", event => {
+    const file = event.target.files && event.target.files[0];
+    if (file) {
+        handleImportFile(file).catch(err => alert("Lỗi import: " + err.message));
+    }
+    event.target.value = "";
+});
+renderImportStatus();
