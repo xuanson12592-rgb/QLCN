@@ -1,5 +1,6 @@
 """Đối soát phân công Loc AU với báo cáo công nợ FPT và cập nhật Google Sheet."""
 
+import json
 import os
 import re
 from datetime import datetime
@@ -19,6 +20,7 @@ CREDENTIALS_FILE = os.path.join(BASE_DIR, "credentials.json")
 EXCEL_FILE = os.path.join(BASE_DIR, "Data.xlsx")
 SHEET_NAME = "BC"
 T1_SHEET_NAMES = ("Tháng T-1", "Tháng T-")
+STAFF_HISTORY_FILE = os.path.join(BASE_DIR, "dvkh_history.json")
 UPLOAD_CHUNK_ROWS = 2000
 VERCEL_DEPLOY_HOOK = os.getenv("VERCEL_DEPLOY_HOOK", "").strip()
 OUTPUT_COLUMNS = (
@@ -520,6 +522,35 @@ def prepare_report(source_file):
   assignments = load_loc_au()
   comparison = load_previous_month(EXCEL_FILE, ("Tháng T-",))
   report = build_report(assignments, current, comparison)
+
+  # Lich su HD -> nhan su DVKH: cap nhat tu file hien tai roi bo sung cho
+  # cac dong "Đã thanh toán" (khong thi loc theo DVKH se mat chung -> tile 0%)
+  staff_map = load_staff_history()
+  current_contract = raw_column(current, ("Hợp đồng", "HD"))
+  current_staff = coalesce(
+      current, ("NVVP AU", "Acc được PC chăm sóc RM", "Nhân sự DVKH")
+  )
+  if current_contract is not None:
+    for hd, staff_value in zip(
+        current_contract.map(normalize_contract), current_staff
+    ):
+      if hd and staff_value:
+        staff_map[hd] = staff_value
+
+  is_paid = report["Kết quả đối soát"] == "Đã thanh toán"
+  missing_staff = report["Nhân sự DVKH"].astype(str).str.strip() == ""
+  needed = set(report.loc[is_paid & missing_staff, "HD"].astype(str))
+  remaining = needed - staff_map.keys()
+  if remaining:
+    staff_map.update(staff_from_daily_sheet(remaining))
+  remaining = needed - staff_map.keys()
+  if remaining:
+    staff_map.update(staff_from_previous_reports(source_file, remaining))
+  if needed:
+    fill_mask = is_paid & report["HD"].map(staff_map).notna()
+    filled_staff = report.loc[fill_mask, "HD"].map(staff_map).map(normalize_contract)
+    report.loc[fill_mask, "Nhân sự DVKH"] = filled_staff
+    save_staff_history(staff_map)
   rows = [
       list(OUTPUT_COLUMNS),
       *([plain_cell(value) for value in record] for record in report.itertuples(index=False)),
@@ -527,7 +558,7 @@ def prepare_report(source_file):
   return rows
 
 
-def get_latest_fpt_file():
+def list_fpt_files():
   directories = (BASE_DIR, os.path.expanduser("~/Downloads"))
   reports = []
   for directory in directories:
@@ -538,9 +569,53 @@ def get_latest_fpt_file():
         for entry in os.scandir(directory)
         if entry.is_file()
         and os.path.splitext(entry.name)[1].lower() in (".xlsx", ".xls")
-        and entry.name.lower() != "data.xlsx"
+        # Chi nhan file bao cao FPT, tranh nham file mau/xlsx khac
+        and entry.name.lower().startswith("danhsachhoadon")
         and not entry.name.startswith("~$")
     )
+  return reports
+
+
+def load_staff_history():
+  try:
+    with open(STAFF_HISTORY_FILE, encoding="utf-8") as fh:
+      return {str(key): str(value) for key, value in json.load(fh).items()}
+  except Exception:
+    return {}
+
+
+def save_staff_history(staff_map):
+  try:
+    with open(STAFF_HISTORY_FILE, "w", encoding="utf-8") as fh:
+      json.dump(staff_map, fh, ensure_ascii=False)
+  except Exception as exc:
+    print(f"⚠️ Không lưu được lịch sử DVKH: {exc}")
+
+
+def staff_from_daily_sheet(needed_contracts=None):
+  """Tra "Nhân sự DVKH" từ sheet 'Số liệu theo ngày' trong Data.xlsx.
+
+  Sheet này là bản xuất FPT đầy đủ nên phủ được cả HĐ đã mất khỏi file nợ.
+  """
+  try:
+    frame = pd.read_excel(EXCEL_FILE, sheet_name="Số liệu theo ngày")
+  except Exception:
+    return {}
+  contract_column = raw_column(frame, ("Hợp đồng", "HD"))
+  if contract_column is None and len(frame.columns) > 3:
+    contract_column = frame.iloc[:, 3]
+  if contract_column is None:
+    return {}
+  staff = coalesce(frame, ("NVVP AU", "Acc được PC chăm sóc RM", "Nhân sự DVKH"))
+  out = {}
+  for hd, staff_value in zip(contract_column.map(normalize_contract), staff):
+    if hd and staff_value and (needed_contracts is None or hd in needed_contracts):
+      out[hd] = staff_value
+  return out
+
+
+def get_latest_fpt_file():
+  reports = list_fpt_files()
   if not reports:
     raise FileNotFoundError(
         "Không tìm thấy file báo cáo FPT (.xlsx/.xls) trong thư mục dự án "
@@ -550,6 +625,56 @@ def get_latest_fpt_file():
   latest = max(reports, key=os.path.getmtime)
   print(f"📂 Đã tìm thấy file báo cáo FPT mới nhất tại: {latest}")
   return latest
+
+
+def staff_from_previous_reports(current_path, needed_contracts, max_files=10):
+  """Tra "Nhân sự DVKH" (NVVP AU) cho HĐ đã thanh toán từ các file FPT cũ.
+
+  HĐ biến mất khỏi file nợ sau khi trả; file gần nhất trước đó vẫn chứa
+  nhân sự DVKH phụ trách. Quét từ file mới nhất lùi dần, dừng khi đủ.
+  """
+  if not needed_contracts:
+    return {}
+  current_abs = os.path.abspath(current_path)
+  candidates = sorted(
+      (path for path in list_fpt_files()
+       if os.path.abspath(path) != current_abs),
+      key=os.path.getmtime,
+      reverse=True,
+  )
+  staff_map = {}
+  for path in candidates[:max_files]:
+    remaining = needed_contracts - staff_map.keys()
+    if not remaining:
+      break
+    try:
+      raw = pd.read_excel(path, header=None)
+      header_row = find_contract_header_row(raw)
+      if header_row and header_row > 0:
+        data = raw.iloc[header_row:].reset_index(drop=True)
+        data.columns = [str(column).strip() for column in data.iloc[0].tolist()]
+        data = data.iloc[1:].reset_index(drop=True)
+      else:
+        data = pd.read_excel(path)
+      frame = normalize_fpt_contract_columns(data)
+    except Exception:
+      continue
+    contract_column = raw_column(frame, ("Hợp đồng", "HD"))
+    staff_column = raw_column(
+        frame, ("NVVP AU", "Acc được PC chăm sóc RM", "Nhân sự DVKH")
+    )
+    if contract_column is None or staff_column is None:
+      continue
+    contracts = contract_column.map(normalize_contract)
+    staff = staff_column.map(text_value)
+    for hd, staff_value in zip(contracts, staff):
+      if hd in remaining and staff_value != "" and hd not in staff_map:
+        staff_map[hd] = staff_value
+    if len(staff_map) >= len(needed_contracts):
+      break
+  if staff_map:
+    print(f"🔎 Tra được nhân sự DVKH cho {len(staff_map)} HĐ đã thanh toán từ file kỳ trước.")
+  return staff_map
 
 
 # Đồng bộ báo cáo 11 cột lên tab BC.

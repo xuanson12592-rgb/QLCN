@@ -7,3 +7,4 @@ __pycache__/
 inside_profile/
 cron.log
 probe*.py
+dvkh_history.json
