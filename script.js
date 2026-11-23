@@ -32,6 +32,15 @@ const REPORT_COLUMNS = [
 
 const GVIZ_URL = "https://docs.google.com/spreadsheets/d/1W2JbsnZr3fJTihZMro70HMhUWm1cYYSt5s26MVdwSHc/gviz/tq?tqx=out:json&sheet=BC";
 
+// --- Chay nap du lieu bang tay tu nut tren man hinh ---
+// Server noi bo tren may chay script (chi toi duoc khi mo web tren may do).
+const SYNC_SERVER_URL = "http://127.0.0.1:8765";
+// Dan URL Google Apps Script (deploy web app ghi co SyncTrigger) vao day
+// de nut bam hoat dong tu moi thiet bi; de "" thi chi chay tren may chu.
+const SYNC_TRIGGER_URL = "";
+const SYNC_STATUS_GVIZ = "https://docs.google.com/spreadsheets/d/1W2JbsnZr3fJTihZMro70HMhUWm1cYYSt5s26MVdwSHc/gviz/tq?tqx=out:json&sheet=SyncStatus&range=A1";
+let syncPollTimer = null;
+
 let currentUser = null;
 let globalData = [];
 let refreshTimer = null;
@@ -488,6 +497,192 @@ async function fetchGoogleSheetRows() {
     }).filter(item => REPORT_COLUMNS.some(key => String(item[key]).trim() !== ""));
 }
 
+function isAdminUser() {
+    return Boolean(currentUser && currentUser.role === "admin");
+}
+
+function setSyncStatus(text, isError) {
+    const el = document.getElementById("sync-status");
+    if (!el) return;
+    el.hidden = !text;
+    el.textContent = text || "";
+    el.style.color = isError ? "#dc3545" : "#2e7d32";
+}
+
+function abortAfter(ms) {
+    if (typeof AbortSignal !== "undefined" && AbortSignal.timeout) {
+        return AbortSignal.timeout(ms);
+    }
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), ms);
+    return controller.signal;
+}
+
+function fmtSyncTime(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return "";
+    return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
+        + " " + d.toLocaleDateString("vi-VN");
+}
+
+// Chap nhan ca 2 dang: status tu /sync-status (server noi bo) va JSON trong
+// o SyncStatus!A1 tren sheet ({state,time,trigger,msg}).
+function describeSyncStatus(s) {
+    if (!s) return "";
+    const state = s.running ? "running" : s.state;
+    if (state === "running") {
+        const at = s.started_at || s.time;
+        return "⏳ Đang chạy nạp dữ liệu" + (at ? " (bắt đầu " + fmtSyncTime(at) + ")…" : "…");
+    }
+    const t = s.finished_at || s.time;
+    if (state === "done") return "✅ Chạy xong lúc " + fmtSyncTime(t);
+    if (state === "error" || state === "stopped") {
+        return "⚠ Lần chạy lúc " + fmtSyncTime(t) + " bị lỗi";
+    }
+    return "";
+}
+
+function parseSyncStatusCell(text) {
+    if (!text) return null;
+    const start = text.indexOf("{"), end = text.lastIndexOf("}");
+    if (start === -1 || end === -1) return null;
+    try {
+        const payload = JSON.parse(text.slice(start, end + 1));
+        const raw = payload && payload.table && payload.table.rows
+            && payload.table.rows[0] && payload.table.rows[0].c
+            && payload.table.rows[0].c[0] && payload.table.rows[0].c[0].v;
+        return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function finishSyncPoll() {
+    const btn = document.getElementById("btn-sync-run");
+    if (btn) btn.disabled = false;
+}
+
+async function runSyncNow() {
+    if (!isAdminUser()) return;
+    const btn = document.getElementById("btn-sync-run");
+    btn.disabled = true;
+    setSyncStatus("Đang gửi lệnh chạy…");
+
+    // 1) Thu server noi bo tren may chay script
+    try {
+        const res = await fetch(
+            SYNC_SERVER_URL + "/run-sync?who=" + encodeURIComponent(currentUser.username),
+            { method: "POST", signal: abortAfter(3000) }
+        );
+        if (res.ok) {
+            const data = await res.json().catch(() => ({}));
+            setSyncStatus(data.status === "already_running"
+                ? "⏳ Tiến trình đang chạy sẵn — chờ xong…"
+                : "⏳ Đã bắt đầu chạy nạp dữ liệu…");
+            pollSyncLocal(0);
+            return;
+        }
+    } catch (e) { /* server noi bo khong chay hoac dang o thiet bi khac */ }
+
+    // 2) Thiet bi khac: ghi co SyncTrigger qua Apps Script, may doc moi phut
+    if (SYNC_TRIGGER_URL) {
+        try {
+            await fetch(
+                SYNC_TRIGGER_URL + "&who=" + encodeURIComponent(currentUser.username),
+                { mode: "no-cors", signal: abortAfter(8000) }
+            );
+            setSyncStatus("Đã gửi lệnh — hệ thống sẽ chạy trong ~1-2 phút.");
+            pollSyncSheet(0);
+            return;
+        } catch (e) { /* roi xuong bao loi */ }
+    }
+
+    setSyncStatus("⚠ Không kết nối được máy chạy script.", true);
+    btn.disabled = false;
+}
+
+function pollSyncLocal(round) {
+    if (syncPollTimer) clearTimeout(syncPollTimer);
+    fetch(SYNC_SERVER_URL + "/sync-status", { signal: abortAfter(4000) })
+        .then(r => (r.ok ? r.json() : null))
+        .then(s => {
+            if (!s) throw new Error("no status");
+            const state = s.running ? "running" : s.state;
+            setSyncStatus(
+                describeSyncStatus(s),
+                state === "error" || state === "stopped"
+            );
+            if (state === "running") {
+                if (round < 120) {
+                    syncPollTimer = setTimeout(() => pollSyncLocal(round + 1), 10000);
+                } else {
+                    finishSyncPoll();
+                }
+            } else {
+                if (state === "done") loadReport(true);
+                finishSyncPoll();
+            }
+        })
+        .catch(() => {
+            setSyncStatus("⚠ Mất kết nối máy chạy script.", true);
+            finishSyncPoll();
+        });
+}
+
+function pollSyncSheet(round) {
+    if (syncPollTimer) clearTimeout(syncPollTimer);
+    fetch(SYNC_STATUS_GVIZ + "&t=" + Date.now())
+        .then(r => (r.ok ? r.text() : null))
+        .then(text => {
+            const s = parseSyncStatusCell(text);
+            if (!s) throw new Error("no status");
+            setSyncStatus(describeSyncStatus(s), s.state === "error");
+            if (s.state === "running") {
+                if (round < 40) {
+                    syncPollTimer = setTimeout(() => pollSyncSheet(round + 1), 30000);
+                } else {
+                    finishSyncPoll();
+                }
+            } else {
+                if (s.state === "done") loadReport(true);
+                finishSyncPoll();
+            }
+        })
+        .catch(() => {
+            if (round < 40) {
+                syncPollTimer = setTimeout(() => pollSyncSheet(round + 1), 30000);
+            } else {
+                finishSyncPoll();
+            }
+        });
+}
+
+// Hien trang thai lan chay gan nhat khi admin vua dang nhap.
+function refreshSyncStatusLabel() {
+    fetch(SYNC_SERVER_URL + "/sync-status", { signal: abortAfter(2500) })
+        .then(r => (r.ok ? r.json() : null))
+        .then(s => {
+            if (!s) throw new Error("no local server");
+            setSyncStatus(describeSyncStatus(s) || "Sẵn sàng chạy nạp tay.");
+        })
+        .catch(() => {
+            fetch(SYNC_STATUS_GVIZ + "&t=" + Date.now())
+                .then(r => (r.ok ? r.text() : null))
+                .then(text => {
+                    const s = parseSyncStatusCell(text);
+                    if (s) setSyncStatus(describeSyncStatus(s));
+                })
+                .catch(() => {});
+        });
+}
+
+function setupSyncButton() {
+    const box = document.getElementById("sync-box");
+    if (!box) return;
+    box.hidden = !isAdminUser();
+    if (isAdminUser()) refreshSyncStatusLabel();
+}
+
 function handleLogin() {
     const username = document.getElementById("username").value.trim();
     const password = document.getElementById("password").value.trim();
@@ -508,6 +703,7 @@ function handleLogin() {
         appliedFilters = { area: "", staff: "" };
         loadAssignmentImport();
         renderImportStatus();
+        setupSyncButton();
         loadReport(true);
         return;
     }
@@ -523,6 +719,12 @@ function handleLogout() {
     prevMonthImport = null;
     renderImportStatus();
     setActiveReportTab("summary");
+    const syncBox = document.getElementById("sync-box");
+    if (syncBox) syncBox.hidden = true;
+    if (syncPollTimer) {
+        clearTimeout(syncPollTimer);
+        syncPollTimer = null;
+    }
     if (refreshTimer) {
         clearInterval(refreshTimer);
         refreshTimer = null;

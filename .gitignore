@@ -8,3 +8,6 @@ inside_profile/
 cron.log
 probe*.py
 dvkh_history.json
+sync_status.json
+sync_trigger_last.txt
+sync_server.log

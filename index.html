@@ -559,6 +559,12 @@ body::before {
             </div>
             <div class="header-actions">
                 <button class="btn-logout" onclick="handleLogout()">Đăng xuất</button>
+                <div class="import-box" id="sync-box" hidden>
+                    <button type="button" class="btn-import" id="btn-sync-run"
+                        title="Chạy nạp dữ liệu công nợ ngay (giống lịch tự động 6h30/13h)"
+                        onclick="runSyncNow()">🔄 Nạp dữ liệu ngay</button>
+                    <div id="sync-status" class="import-status" hidden></div>
+                </div>
                 <div class="import-box">
                     <button type="button" class="btn-import" id="btn-import"
                         title="File: Số HĐ | Nhân viên thu | Nhân sự DVKH"

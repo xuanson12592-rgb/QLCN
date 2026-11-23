@@ -17,6 +17,10 @@ fi
 
 cd "$BASE_DIR" || exit 1
 
+# Ghi nhan nguon kich hoat (cron / web:<user> / remote-web) de web hien trang thai
+TRIGGER="${QLCN_TRIGGER:-cron}"
+timeout 30 "$PY_SYNC" sync_state.py running "$TRIGGER" >> "$LOG" 2>&1 || true
+
 echo "----- BUOC 1: Tai bao cao tu inside.fpt.net -----" >> "$LOG"
 timeout 600 "$PY_FETCH" fetch_report.py >> "$LOG" 2>&1
 fetch_code=$?
@@ -27,5 +31,10 @@ fi
 echo "----- BUOC 2: Doi soat + day len Google Sheets -----" >> "$LOG"
 timeout 600 "$PY_SYNC" auto_sync.py >> "$LOG" 2>&1
 code=$?
+if [ $code -eq 0 ]; then
+    timeout 30 "$PY_SYNC" sync_state.py done "$TRIGGER" "fetch=$fetch_code" >> "$LOG" 2>&1 || true
+else
+    timeout 30 "$PY_SYNC" sync_state.py error "$TRIGGER" "fetch=$fetch_code sync=$code" >> "$LOG" 2>&1 || true
+fi
 echo "[DONE] fetch=$fetch_code sync=$code" >> "$LOG"
 exit $code
