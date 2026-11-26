@@ -116,6 +116,63 @@ def fetch_mypt_raw():
         return raw
 
 
+LICHTRUC_CACHE = os.path.join(BASE, "lichtruc_cache.json")
+LICHTRUC_URL = "http://partner.fpt.net/optimal-assign/employeemanagement/divisionthejob"
+LICHTRUC_FILTER = {"SubparentDescs": "06.Khanh Hoa", "LocationID": "58", "Partner": "1506", "Block": "", "CodeEmp": ""}
+
+JS_LICHTRUC = """async (f) => {
+  const tok = document.querySelector('input[name=__RequestVerificationToken]');
+  const h = {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest'};
+  if (tok) h['XSRF-TOKEN'] = tok.value;
+  const r = await fetch('/optimal-assign/EmployeeManagement/Divisionthejob/Index?handler=ViewDivisionthejobs',
+    {method: 'POST', headers: h, body: 'dataJson=' + encodeURIComponent(JSON.stringify(f)), credentials: 'include'});
+  return [r.status, await r.text()];
+}"""
+
+
+def fetch_lichtruc_raw():
+    """Lich truc thang hien tai tu partner.fpt.net (can phien inside.fpt.net trong Chrome bot)."""
+    from playwright.sync_api import sync_playwright
+    today = datetime.date.today()
+    with sync_playwright() as p:
+        ctx = p.chromium.connect_over_cdp(CDP_URL).contexts[0]
+        fr = next((f for pg in ctx.pages for f in pg.frames if "divisionthejob" in f.url.lower()), None)
+        own = None
+        if fr is None:
+            own = ctx.new_page()
+            own.goto(LICHTRUC_URL, wait_until="networkidle", timeout=60000)
+            fr = own.main_frame
+            if "divisionthejob" not in fr.url.lower():
+                own.close()
+                raise RuntimeError("chua dang nhap inside.fpt.net / partner.fpt.net trong Chrome bot")
+        st, body = fr.evaluate(JS_LICHTRUC, dict(LICHTRUC_FILTER, Months=str(today.month), Years=str(today.year)))
+        if own:
+            own.close()
+        if st != 200:
+            raise RuntimeError(f"lich truc HTTP {st}")
+        rows = json.loads(body)
+        return [{k: v for k, v in r.items() if k.startswith("Day") or k in ("CodeStaff", "NameStaff", "SubTeam", "TotalDay", "Months", "Years")}
+                for r in rows]
+
+
+def get_lichtruc():
+    try:
+        rows = fetch_lichtruc_raw()
+        data = {"rows": rows, "fetched_at": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"),
+                "month": datetime.date.today().month}
+        with open(LICHTRUC_CACHE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        return data, None
+    except Exception as e:
+        log(f"[LOI] lich truc: {e}")
+        if os.path.exists(LICHTRUC_CACHE):
+            with open(LICHTRUC_CACHE, encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("month") == datetime.date.today().month:
+                return data, f"Không lấy được lịch trực mới ({e}). Đang dùng lịch trực lúc {data.get('fetched_at')}."
+        return None, f"Không lấy được lịch trực từ partner.fpt.net ({e}); dùng file lịch trực trong Downloads nếu có."
+
+
 def get_mypt():
     src = os.environ.get("MYPT_JSON")
     try:
@@ -198,6 +255,8 @@ def latest(patterns):
     return max(files, key=os.path.getmtime) if files else None
 
 
+SHIFT_DAY = {"CA1": 1, "CA2": 1, "CA3": 1, "S": 0.5, "C": 0.5, "T": 0.5}
+
 DONE_STATUS = {"da xu ly dang theo doi"}
 
 
@@ -255,7 +314,14 @@ def build_checklist(acc_to_code):
     return res, {"file": os.path.basename(f), "date": mt.strftime("%d/%m/%Y")}
 
 
-def build_plan(codes, year, month):
+def build_plan(codes, year, month, lt=None):
+    if lt and lt.get("rows"):
+        plan = {}
+        for r in lt["rows"]:
+            code = str(r.get("CodeStaff") or "").zfill(8)
+            if code in codes and int(r.get("Months") or 0) == month and int(r.get("Years") or 0) == year:
+                plan[code] = {d: str(r.get(f"Day{d}") or "").strip() for d in range(1, 32) if str(r.get(f"Day{d}") or "").strip()}
+        return plan, {"file": f"partner.fpt.net (lấy lúc {lt.get('fetched_at')})"}
     f = latest(["lịch trực*.xls*", "lich truc*.xls*", "Lich truc*.xls*"])
     plan = {}
     if not f:
@@ -293,7 +359,8 @@ def build_data():
 
     ton, trend, ton_meta = build_ton(acc_to_code)
     chk, chk_meta = build_checklist(acc_to_code)
-    plan, plan_meta = build_plan(codes, today.year, today.month)
+    lt, lt_warn = get_lichtruc()
+    plan, plan_meta = build_plan(codes, today.year, today.month, lt)
 
     att = {}
     for c in mypt["checkin"]:
@@ -330,6 +397,10 @@ def build_data():
             {"name": "Checklist ≥24h", "val": c24, "target": f"≤ {kpi['checklist24_max']}", "ok": c24 <= kpi["checklist24_max"]},
             {"name": "Checklist lặp", "val": lap, "target": f"≤ {kpi['checklist_lap_max']}", "ok": lap <= kpi["checklist_lap_max"]},
         ]
+        pl = plan.get(code)
+        if pl:
+            tgt = sum(SHIFT_DAY.get(pl.get(d, ""), 0) for d in range(1, today.day + 1))
+            checks[0]["target"], checks[0]["ok"] = f"≥ {tgt:g} (theo lịch)", cong >= tgt - 0.05 * max(tgt, 1)
         cal = {}
         for d in range(1, days_in_month + 1):
             c = a.get(d)
@@ -340,6 +411,8 @@ def build_data():
                 st = "full" if (c["factor"] or 0) >= 0.95 else "part"
             elif c:
                 st = "miss"
+            elif p == "O":
+                st = "off" if d <= today.day else "future"
             elif d < today.day and p:
                 st = "miss"
             else:
@@ -353,7 +426,7 @@ def build_data():
             "checks": checks, "score": sum(1 for c in checks if c["ok"]), "cal": cal,
             "trend": [trend[d].get(code, 0) for d in trend],
         })
-    warns = [w for w in [mypt_warn] if w]
+    warns = [w for w in [mypt_warn, lt_warn] if w]
     if ton_meta and ton_meta["date"] != str(today):
         warns.append(f"Báo cáo tồn mới nhất là ngày {ton_meta['date']} — tải file bao_cao_chi_tiet_ton hôm nay vào Downloads để cập nhật.")
     if not ton_meta:
