@@ -6,7 +6,7 @@ Nguon du lieu:
   Chi so do*.xlsx / bao cao SOC*.xlsx (checklist >= 24h, checklist lap).
 Chi tieu KPI doc tu kpi.json (tu tao neu chua co).
 """
-import csv, datetime, glob, gzip, json, math, os, re, sys, unicodedata, urllib.request
+import csv, datetime, glob, gzip, json, math, os, re, sys, unicodedata, urllib.parse, urllib.request
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DL_DIR = os.environ.get("DL_DIR", os.path.join(os.path.expanduser("~"), "Downloads"))
@@ -159,8 +159,20 @@ def fetch_lichtruc_raw():
                 own.close()
                 raise RuntimeError("chua dang nhap inside.fpt.net / partner.fpt.net trong Chrome bot")
         # Goi API truc tiep bi Chrome chan, nen bam nut "Xem bao cao" cua trang va doc response
-        with fr.page.expect_response(lambda r: "handler=ViewDivisionthejobs" in r.url, timeout=60000) as info:
-            fr.get_by_text("Xem báo cáo", exact=True).first.click(timeout=15000)
+        today = datetime.date.today()
+
+        def this_month(route):
+            dj = json.loads(urllib.parse.parse_qs(route.request.post_data or "").get("dataJson", ["{}"])[0])
+            dj.update(Months=str(today.month), Years=str(today.year))
+            route.continue_(post_data="dataJson=" + urllib.parse.quote(json.dumps(dj, ensure_ascii=False)))
+
+        pat = "**/*handler=ViewDivisionthejobs*"
+        fr.page.route(pat, this_month)
+        try:
+            with fr.page.expect_response(lambda r: "handler=ViewDivisionthejobs" in r.url, timeout=60000) as info:
+                fr.get_by_text("Xem báo cáo", exact=True).first.click(timeout=15000)
+        finally:
+            fr.page.unroute(pat, this_month)
         resp = info.value
         st, body = resp.status, resp.text()
         if own:
