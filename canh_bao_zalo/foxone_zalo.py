@@ -349,6 +349,9 @@ def run(dry_run=False):
                     fchat.bring_to_front()
             except Exception as e:
                 log(f"[LOI] {e}")
+                if "has been closed" in str(e):
+                    log("Chrome/tab da bi dong, thoat de khoi dong lai.")
+                    return
             time.sleep(POLL_SECONDS)
 
 
