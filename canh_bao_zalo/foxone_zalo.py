@@ -56,8 +56,10 @@ DONG_VIEN = [
 ]
 TIME_RE = re.compile(r"^\s*\d{1,2}:\d{2}\s*$")
 TODAY_RE = re.compile(r"^(today|hôm nay)$", re.I)
-OTHER_DAY_RE = re.compile(r"^(yesterday|hôm qua|thứ|chủ nhật|monday|tuesday|wednesday|thursday|friday|saturday|sunday"
-                          r"|\d{1,2}[/-]\d{1,2}|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d)", re.I)
+_DATE = r"\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?"
+_WEEKDAY = r"(?:thứ (?:hai|ba|tư|năm|sáu|bảy)|chủ nhật|monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+_MONTH = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2}(?:, \d{4})?"
+OTHER_DAY_RE = re.compile(rf"^(?:yesterday|hôm qua|{_WEEKDAY}(?:,? (?:{_DATE}|{_MONTH}))?|{_DATE}|{_MONTH})$", re.I)
 
 
 def log(msg):
@@ -101,9 +103,13 @@ def parse_alerts(text):
     alerts, cur, section, day = [], None, "", None
     for line in lines:
         s = line.strip()
-        if len(s) < 40 and TODAY_RE.match(s):
+        if TODAY_RE.match(s):
             day = "today"
-        elif len(s) < 40 and OTHER_DAY_RE.match(s) and not TIME_RE.match(s):
+            # Canh bao nam truoc vach "Today" la cua ngay cu
+            for a in alerts + ([cur] if cur else []):
+                if a["day"] is None:
+                    a["day"] = "old"
+        elif OTHER_DAY_RE.match(s):
             day = "old"
         if HEADER_RE.search(s) and s.upper().startswith("C"):
             if cur:
@@ -147,7 +153,7 @@ def is_fresh(alert, now=None):
     if alert.get("day") == "old":
         return False
     if not alert.get("time"):
-        return alert.get("day") == "today"
+        return False
     now = now or datetime.now()
     h, m = map(int, alert["time"].split(":"))
     age = (now - now.replace(hour=h, minute=m, second=0, microsecond=0)).total_seconds() / 60
