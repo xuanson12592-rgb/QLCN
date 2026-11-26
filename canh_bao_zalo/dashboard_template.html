@@ -104,7 +104,7 @@ function renderKpi(){
     rows.map((p,i) => `<tr><td class="n">${i+1}</td>
       <td><b>${esc(p.name)}</b><br><span class="muted">${p.code} · ${esc(p.acc)} · ${esc(p.phone)}</span></td>
       <td class="n"><span class="pill p-${p.today.st}">${ST[p.today.st] || "-"}</span><br><span class="muted">${esc(p.today.time)}</span></td>
-      ${p.checks.map(c => `<td class="n ${c.ok ? "ok" : "bad"}">${esc(c.val)}</td>`).join("")}
+      ${p.checks.map(c => `<td class="n ${c.ok === null ? "" : c.ok ? "ok" : "bad"}" title="${c.ok === null ? "Chưa có dữ liệu" : ""}">${esc(c.val)}</td>`).join("")}
       <td class="n">${spark(p.trend)}</td>
       <td class="n"><span class="score" style="${scoreColor(p.score)}">${p.score}/${maxScore}</span></td></tr>`).join("")
   }</tbody></table><p class="muted">Bấm tiêu đề cột để sắp xếp. Xanh = đạt chỉ tiêu, đỏ = chưa đạt. Ngày công tính theo điểm danh ho.mypt.vn đến hôm nay; chỉ tiêu chia theo số ngày đã qua trong tháng.</p>`;

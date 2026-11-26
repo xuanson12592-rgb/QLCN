@@ -322,10 +322,16 @@ def build_plan(codes, year, month, lt=None):
             if code in codes and int(r.get("Months") or 0) == month and int(r.get("Years") or 0) == year:
                 plan[code] = {d: str(r.get(f"Day{d}") or "").strip() for d in range(1, 32) if str(r.get(f"Day{d}") or "").strip()}
         return plan, {"file": f"partner.fpt.net (lấy lúc {lt.get('fetched_at')})"}
-    f = latest(["lịch trực*.xls*", "lich truc*.xls*", "Lich truc*.xls*"])
+    files = [f for pat in ["lịch trực*.xls*", "lich truc*.xls*", "Lich truc*.xls*"] for f in glob.glob(os.path.join(DL_DIR, pat))]
+    for f in sorted(set(files), key=os.path.getmtime, reverse=True):
+        plan = plan_from_file(f, codes, year, month)
+        if plan:
+            return plan, {"file": os.path.basename(f)}
+    return {}, None
+
+
+def plan_from_file(f, codes, year, month):
     plan = {}
-    if not f:
-        return plan, None
     for rows in read_sheets(f).values():
         for r in rows:
             raw = r.get("CodeStaff")
@@ -340,7 +346,7 @@ def build_plan(codes, year, month, lt=None):
             except ValueError:
                 continue
             plan[code] = {d: str(r.get(f"Day{d}") or "").strip() for d in range(1, 32) if str(r.get(f"Day{d}") or "").strip()}
-    return plan, {"file": os.path.basename(f)}
+    return plan
 
 
 # ---------- tong hop ----------
@@ -397,6 +403,13 @@ def build_data():
             {"name": "Checklist ≥24h", "val": c24, "target": f"≤ {kpi['checklist24_max']}", "ok": c24 <= kpi["checklist24_max"]},
             {"name": "Checklist lặp", "val": lap, "target": f"≤ {kpi['checklist_lap_max']}", "ok": lap <= kpi["checklist_lap_max"]},
         ]
+        mapped = bool(e.get("acc"))
+        for c in checks[2:4]:
+            if not (ton_meta and mapped):
+                c["val"], c["ok"] = "-", None
+        for c in checks[4:6]:
+            if not (chk_meta and mapped):
+                c["val"], c["ok"] = "-", None
         pl = plan.get(code)
         if pl:
             tgt = sum(SHIFT_DAY.get(pl.get(d, ""), 0) for d in range(1, today.day + 1))
@@ -423,7 +436,7 @@ def build_data():
             "block": next((c["block"] for c in a.values() if c.get("block")), ""),
             "today": {"st": cal[today.day]["st"], "time": (t or {}).get("time") or "", "plan": cal[today.day]["plan"]},
             "cong": cong, "ontime_pct": ontime_pct, "ton": lst, "late": late, "c24": c24, "lap": lap,
-            "checks": checks, "score": sum(1 for c in checks if c["ok"]), "cal": cal,
+            "checks": checks, "score": sum(1 for c in checks if c["ok"] is True), "cal": cal,
             "trend": [trend[d].get(code, 0) for d in trend],
         })
     warns = [w for w in [mypt_warn, lt_warn] if w]
