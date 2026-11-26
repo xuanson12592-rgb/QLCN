@@ -38,6 +38,8 @@ RELOAD_MINUTES = int(os.environ.get("RELOAD_MINUTES", "30"))
 ZALO_URL = "https://chat.zalo.me/"
 POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "15"))
 MAX_RETRY = int(os.environ.get("MAX_RETRY", "5"))
+# Chi gui canh bao moi duoc FoxOne dang trong vong MAX_AGE_MIN phut (tin cu hien lai khi tai trang thi bo qua)
+MAX_AGE_MIN = int(os.environ.get("MAX_AGE_MIN", "20"))
 
 HEADER_RE = re.compile(r"C[ẢA]NH\s*B[ÁA]O[^\n]*TR[ỄE]\s*H[ẸE]N[^\n]*", re.I)
 SECTION_RE = re.compile(r"^\s*(Tri[ểe]n\s*khai|B[ảa]o\s*tr[ìi])\b", re.I)
@@ -53,6 +55,9 @@ DONG_VIEN = [
     "Tinh thần thép, xử lý đúng hẹn! Cả team tin tưởng em! 🚀",
 ]
 TIME_RE = re.compile(r"^\s*\d{1,2}:\d{2}\s*$")
+TODAY_RE = re.compile(r"^(today|hôm nay)$", re.I)
+OTHER_DAY_RE = re.compile(r"^(yesterday|hôm qua|thứ|chủ nhật|monday|tuesday|wednesday|thursday|friday|saturday|sunday"
+                          r"|\d{1,2}[/-]\d{1,2}|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d)", re.I)
 
 
 def log(msg):
@@ -93,13 +98,17 @@ def parse_alerts(text):
     """
     text = unicodedata.normalize("NFC", text)
     lines = text.splitlines()
-    alerts, cur, section = [], None, ""
+    alerts, cur, section, day = [], None, "", None
     for line in lines:
         s = line.strip()
+        if len(s) < 40 and TODAY_RE.match(s):
+            day = "today"
+        elif len(s) < 40 and OTHER_DAY_RE.match(s) and not TIME_RE.match(s):
+            day = "old"
         if HEADER_RE.search(s) and s.upper().startswith("C"):
             if cur:
                 alerts.append(cur)
-            cur, section = {"title": HEADER_RE.search(s).group(0).strip(), "items": [], "raw": [s]}, ""
+            cur, section = {"title": HEADER_RE.search(s).group(0).strip(), "items": [], "raw": [s], "day": day, "time": None}, ""
             continue
         if cur is None:
             continue
@@ -113,12 +122,15 @@ def parse_alerts(text):
         elif m_item:
             cur["items"].append({"hd": m_item.group(1).upper(), "ktv": m_item.group(2).strip(), "loai": section})
             cur["raw"].append(s)
-            if TIME_RE.search(s.split()[-1]) or re.search(r"\d{1,2}:\d{2}\s*$", s):
+            m_t = re.search(r"(\d{1,2}:\d{2})\s*$", s)
+            if m_t:
+                cur["time"] = m_t.group(1)
                 alerts.append(cur)
                 cur = None
         elif s.lower().startswith("tổng") or s.lower().startswith("tong"):
             cur["raw"].append(s)
         elif TIME_RE.match(s):
+            cur["time"] = s
             alerts.append(cur)
             cur = None
         else:
@@ -128,6 +140,18 @@ def parse_alerts(text):
     if cur:
         alerts.append(cur)
     return [a for a in alerts if a["items"]]
+
+
+def is_fresh(alert, now=None):
+    """Canh bao duoc dang hom nay va trong vong MAX_AGE_MIN phut."""
+    if alert.get("day") == "old":
+        return False
+    if not alert.get("time"):
+        return alert.get("day") == "today"
+    now = now or datetime.now()
+    h, m = map(int, alert["time"].split(":"))
+    age = (now - now.replace(hour=h, minute=m, second=0, microsecond=0)).total_seconds() / 60
+    return -2 <= age <= MAX_AGE_MIN
 
 
 def alert_keys(alerts):
@@ -314,6 +338,11 @@ def run(dry_run=False):
                     log(f"Lan dau: danh dau {len(alerts)} canh bao cu la da xem (khong gui lai).")
                 for a, k in zip(alerts, alert_keys(alerts)):
                     if k in state["seen"] or k in dry_seen:
+                        continue
+                    if not is_fresh(a):
+                        state["seen"][k] = datetime.now().isoformat(timespec="seconds")
+                        save_state(state)
+                        log(f"Bo qua canh bao cu ({a.get('day') or '?'} {a.get('time') or '?'}): {a['title']} — {len(a['items'])} HD")
                         continue
                     log(f"Canh bao moi: {a['title']} — {len(a['items'])} HD")
                     msgs, missing = build_messages(a, ktv_map)
