@@ -483,7 +483,8 @@ def get_ton_live(acc_to_code):
         warn = f"Không lấy được tồn ca mới từ inside.fpt.net ({e}). Đang dùng số liệu lúc {cache.get('fetched_at')}."
     for lst in current.values():
         lst.sort(key=lambda x: (not x["late"], x["xanh_ts"] or "9"))
-    meta = {"date": today, "file": "inside.fpt.net · Tồn giám sát", "exported": cache["fetched_at"], "live": True}
+    meta = {"date": today, "file": "inside.fpt.net · Tồn giám sát", "exported": cache["fetched_at"], "live": True,
+            "cached": warn is not None}
     return current, trend, meta, warn
 
 
@@ -617,7 +618,10 @@ def build_data():
     ton, trend, ton_meta = build_ton(acc_to_code)
     live, live_trend, live_meta, ton_warn = get_ton_live(acc_to_code)
     trend = dict(sorted({**trend, **live_trend}.items()))
-    if live is not None:
+    # so lieu Inside luu tam cu hon file Excel tai ve trong ngay thi dung file Excel
+    newer_file = bool(live_meta and live_meta["cached"] and ton_meta and ton_meta["date"] == live_meta["date"]
+                      and to_dt(ton_meta["exported"]) > to_dt(live_meta["exported"]))
+    if live is not None and not newer_file:
         ton, ton_meta = live, live_meta
     chk, chk_meta = build_checklist(acc_to_code)
     lt, lt_warn = get_lichtruc()
