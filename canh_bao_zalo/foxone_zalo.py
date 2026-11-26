@@ -45,14 +45,16 @@ HEADER_RE = re.compile(r"C[ẢA]NH\s*B[ÁA]O[^\n]*TR[ỄE]\s*H[ẸE]N[^\n]*", re
 SECTION_RE = re.compile(r"^\s*(Tri[ểe]n\s*khai|B[ảa]o\s*tr[ìi])\b", re.I)
 ITEM_RE = re.compile(r"H[ĐD]\s*:\s*([A-Z0-9]+)\s*[—–-]+\s*KTV\s*:\s*(.+?)\s*(?:\d{1,2}:\d{2})?\s*$", re.I)
 DONG_VIEN = [
-    "Anh em kỹ thuật luôn là điểm tựa vững chắc nhất của công ty. Cố gắng hết mình ca này nhé em! 💯",
-    "Khách hàng đang chờ em, xử lý nhanh gọn ca này là mình về đích rồi. Cố lên em! 💪",
-    "Mỗi ca đúng hẹn là một khách hàng hài lòng. Em làm được mà, cố gắng nhé! 🔥",
-    "Chủ động liên hệ khách sớm giúp anh nhé, cả team luôn đứng sau em! 🤝",
-    "Chặng nước rút rồi, dồn sức xử lý dứt điểm ca này nhé em. Cảm ơn em nhiều! 🙏",
-    "Em là người giữ chữ tín cho FPT với khách hàng. Cố lên, đúng hẹn là chiến thắng! 🏆",
-    "Vất vả cho em rồi, ưu tiên ca này giúp anh nhé. Có khó khăn gì báo anh hỗ trợ ngay! 💯",
-    "Tinh thần thép, xử lý đúng hẹn! Cả team tin tưởng em! 🚀",
+    "Làm đúng hẹn hôm nay là giữ được niềm tin của khách cho cả đội. Cần hỗ trợ gì em cứ báo anh.",
+    "Khách không nhớ mình sửa nhanh bao nhiêu, nhưng nhớ mình có đến đúng hẹn hay không. Em ưu tiên ca này nhé.",
+    "Một cuộc gọi báo trước cho khách đáng giá hơn mười lời xin lỗi sau đó. Em liên hệ khách sớm giúp anh.",
+    "Việc khó mới cần người giỏi. Anh tin em xử lý gọn ca này, vướng ở đâu báo anh ngay.",
+    "Uy tín xây bằng từng ca đúng hẹn. Cảm ơn em đã luôn làm đến nơi đến chốn.",
+    "Làm chắc từng bước, xong ca nào dứt điểm ca đó. Em đi đường cẩn thận nhé.",
+    "Anh biết hôm nay nhiều việc. Em sắp xếp xử lý ca này trước, phần còn lại anh em cùng gỡ.",
+    "Chữ tín với khách là tài sản của chính em và của cả đội. Em giữ giúp anh ca này.",
+    "Đúng hẹn là cách tôn trọng khách hàng rõ ràng nhất. Cảm ơn em đã cố gắng.",
+    "Kết quả tốt đến từ những việc nhỏ làm đúng lúc. Em xử lý sớm ca này, có khó khăn anh hỗ trợ.",
 ]
 TIME_RE = re.compile(r"^\s*\d{1,2}:\d{2}\s*$")
 TODAY_RE = re.compile(r"^(today|hôm nay)$", re.I)
