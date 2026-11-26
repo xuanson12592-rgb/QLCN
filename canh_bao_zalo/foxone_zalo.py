@@ -327,7 +327,7 @@ def run(dry_run=False):
                             log(f"  [DRY] -> {row['ho_ten']} ({phone}):\n{text}")
                             continue
                         rk = f"{k}|{phone}"
-                        if rk in sent:
+                        if rk in sent or fails.get(rk, 0) >= MAX_RETRY:
                             continue
                         try:
                             zalo_send(zalo, phone, text)
