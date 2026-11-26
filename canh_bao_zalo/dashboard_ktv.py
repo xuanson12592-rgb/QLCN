@@ -135,17 +135,6 @@ def fetch_mypt_raw():
 
 LICHTRUC_CACHE = os.path.join(BASE, "lichtruc_cache.json")
 LICHTRUC_URL = "http://partner.fpt.net/optimal-assign/employeemanagement/divisionthejob"
-LICHTRUC_FILTER = {"SubparentDescs": "06.Khanh Hoa", "LocationID": "58", "Partner": "1506", "Block": "", "CodeEmp": ""}
-
-JS_LICHTRUC = """async (f) => {
-  const tok = document.querySelector('input[name=__RequestVerificationToken]');
-  const h = {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest'};
-  if (tok) h['XSRF-TOKEN'] = tok.value;
-  const r = await fetch('/optimal-assign/EmployeeManagement/Divisionthejob/Index?handler=ViewDivisionthejobs',
-    {method: 'POST', headers: h, body: 'dataJson=' + encodeURIComponent(JSON.stringify(f)), credentials: 'include'});
-  return [r.status, await r.text()];
-}"""
-
 
 def fetch_lichtruc_raw():
     """Lich truc thang hien tai tu partner.fpt.net (can phien inside.fpt.net trong Chrome bot)."""
@@ -162,7 +151,11 @@ def fetch_lichtruc_raw():
             if "divisionthejob" not in fr.url.lower():
                 own.close()
                 raise RuntimeError("chua dang nhap inside.fpt.net / partner.fpt.net trong Chrome bot")
-        st, body = fr.evaluate(JS_LICHTRUC, dict(LICHTRUC_FILTER, Months=str(today.month), Years=str(today.year)))
+        # Goi API truc tiep bi Chrome chan, nen bam nut "Xem bao cao" cua trang va doc response
+        with fr.page.expect_response(lambda r: "handler=ViewDivisionthejobs" in r.url, timeout=60000) as info:
+            fr.get_by_text("Xem báo cáo", exact=True).first.click(timeout=15000)
+        resp = info.value
+        st, body = resp.status, resp.text()
         if own:
             own.close()
         if st != 200:
