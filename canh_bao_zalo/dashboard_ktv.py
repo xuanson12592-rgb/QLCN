@@ -31,7 +31,6 @@ DEFAULT_KPI = {
 
 # Bang KPI "BÁO CÁO CHỈ SỐ SỨC KHỎE | CHI TIẾT NHÂN VIÊN" (Power BI Sức khỏe chi nhánh tren ho.mypt.vn)
 PBI_URL = "https://wabi-south-east-asia-api.analysis.windows.net/public/reports/querydata?synchronous=true"
-PBI_KEY = "c3cd9598-287e-4da5-a85f-0e8e9b1040eb"
 PBI_QUERY = os.path.join(BASE, "pbi_suckhoe_query.json")
 PBI_CACHE = os.path.join(BASE, "pbi_cache.json")
 # (ten, measure, so sanh, nguong, dinh dang)
@@ -244,8 +243,11 @@ def fetch_pbi_raw(captain, year, month):
             cond["Values"] = [[{"Literal": {"Value": "'%s'" % captain.replace("'", "''")}}]]
         elif props == ["Nam_quy", "month"]:
             cond["Values"] = [[{"Literal": {"Value": f"'{year}-Q{(month - 1) // 3 + 1}'"}}, {"Literal": {"Value": f"{month}L"}}]]
+    key = os.environ.get("PBI_KEY") or load_kpi().get("pbi_key")
+    if not key:
+        raise RuntimeError("chưa khai báo pbi_key trong kpi.json")
     req = urllib.request.Request(PBI_URL, data=json.dumps(q, ensure_ascii=False).encode(),
-                                 headers={"X-PowerBI-ResourceKey": PBI_KEY, "Content-Type": "application/json;charset=UTF-8"})
+                                 headers={"X-PowerBI-ResourceKey": key, "Content-Type": "application/json;charset=UTF-8"})
     raw = urllib.request.urlopen(req, timeout=90).read()
     if raw[:2] == b"\x1f\x8b":
         raw = gzip.decompress(raw)
@@ -263,7 +265,8 @@ def get_pbi(captain):
         rows = fetch_pbi_raw(captain, today.year, today.month)
         if not rows:
             raise RuntimeError(f"không có dòng nào cho đội trưởng {captain}")
-        data = {"rows": rows, "fetched_at": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"), "month": today.month}
+        data = {"rows": rows, "fetched_at": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"),
+                "month": today.month, "year": today.year, "captain": captain}
         with open(PBI_CACHE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
         return data, None
@@ -272,7 +275,7 @@ def get_pbi(captain):
         if os.path.exists(PBI_CACHE):
             with open(PBI_CACHE, encoding="utf-8") as f:
                 data = json.load(f)
-            if data.get("month") == today.month:
+            if (data.get("month"), data.get("year"), data.get("captain")) == (today.month, today.year, captain):
                 return data, f"Không lấy được KPI Power BI mới ({e}). Đang dùng số lúc {data.get('fetched_at')}."
         return None, f"Không lấy được KPI từ Power BI Sức khỏe chi nhánh ({e})."
 

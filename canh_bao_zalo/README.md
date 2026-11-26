@@ -25,3 +25,7 @@ Trạng thái lưu ở `sent_state.json`.
 
 ## Cập nhật danh sách KTV
 Sửa `ktv.csv` (cột `ho_ten` phải trùng tên KTV trong tin FoxOne, `dien_thoai` là SĐT Zalo).
+
+## Dashboard: khóa Power BI
+
+KPI lấy từ Power BI "Sức khỏe chi nhánh". Khóa báo cáo không đưa lên GitHub: khai báo `"pbi_key": "..."` trong `kpi.json` (đã bị `.gitignore`) hoặc biến môi trường `PBI_KEY`.
