@@ -101,12 +101,12 @@ function renderKpi(){
     ...P[0].ops.map((c,i) => [`${c.name}<br><span class="muted">${esc(c.target)}</span>`, "o"+i]),
     ["Xu hướng tồn", null],
   ];
-  const num = v => typeof v === "string" ? (parseFloat(v) || 0) : (v ?? 0);
+  const num = v => { const n = typeof v === "string" ? parseFloat(v) : v; return Number.isFinite(n) ? n : null; };
   const val = (p,k) => k === "name" ? p.name : k === "todaySt" ? p.today.st : k === "score" ? p.score
     : k === "total" ? (p.pbi ? p.pbi.total ?? -1 : -1) : k === "rank" ? (p.pbi ? "LMSO".indexOf(p.pbi.rank) : -2)
     : num((k[0] === "o" ? p.ops : p.checks)[+k.slice(1)].val);
   const cell = c => `<td class="n ${c.ok === null ? "" : c.ok ? "ok" : "bad"}" title="${c.ok === null ? "Chưa có dữ liệu" : ""}">${esc(c.val)}</td>`;
-  const rows = [...P].sort((a,b) => { const x = val(a,sortKey), y = val(b,sortKey); return (x > y ? 1 : x < y ? -1 : 0) * sortDir; });
+  const rows = [...P].sort((a,b) => { const x = val(a,sortKey), y = val(b,sortKey); if (x === null || y === null) return (x === null) - (y === null); return (x > y ? 1 : x < y ? -1 : 0) * sortDir; });
   $("#p-kpi").innerHTML = `<table><thead><tr>${cols.map(([h,k]) => `<th class="n" data-k="${k||""}">${h}</th>`).join("")}</tr></thead><tbody>${
     rows.map((p,i) => `<tr><td class="n">${i+1}</td>
       <td><b>${esc(p.name)}</b><br><span class="muted">${p.code} · ${esc(p.acc)} · ${esc(p.phone)}${p.pbi ? ` · bậc ${p.pbi.level ?? "-"} · ${p.pbi.tk ?? 0} TK/${p.pbi.bt ?? 0} BT` : ""}</span></td>
