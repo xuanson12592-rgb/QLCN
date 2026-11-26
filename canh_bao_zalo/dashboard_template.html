@@ -27,6 +27,7 @@ td.n,th.n{text-align:center}
 .pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600}
 .p-full{background:#dcfce7;color:#166534}.p-part{background:#fef3c7;color:#92400e}.p-off{background:#e5e7eb;color:#374151}.p-miss{background:#fee2e2;color:#991b1b}.p-none,.p-future{background:#f3f4f6;color:#9ca3af}
 .score{font-weight:700;padding:3px 8px;border-radius:6px}
+.rk-O{background:#dcfce7;color:#166534}.rk-S{background:#dbeafe;color:#1e40af}.rk-M{background:#e5e7eb;color:#374151}.rk-L{background:#fde68a;color:#92400e}
 .cal td{padding:0;text-align:center;font-size:11px;min-width:30px;height:30px;border:1px solid #fff}
 .cal td.nm{text-align:left;padding:0 8px;min-width:170px;font-size:13px;background:#fff;border-bottom:1px solid var(--line)}
 .cal th{text-align:center;padding:4px 2px;cursor:default}.cal th.td{background:var(--pri);color:#fff}
@@ -78,7 +79,8 @@ $("#cards").innerHTML = [
   [`${working}/${P.length}`, `Đã điểm danh hôm nay (${off} nghỉ)`],
   [totTon, "Tổng tồn ca" + (D.ton_meta ? ` (${D.ton_meta.date})` : "")],
   [`<span class="${totLate ? "bad" : "ok"}">${totLate}</span>`, "HĐ quá hẹn xanh"],
-  [`${fullKpi}/${P.length}`, "KTV đạt đủ KPI"],
+  [`${fullKpi}/${P.length}`, `KTV đạt đủ ${maxScore} KPI`],
+  [["O","S","M","L"].map(r => `${r}:${P.filter(p => p.pbi && p.pbi.rank === r).length}`).join(" "), "Xếp loại OSML"],
 ].map(([v,l]) => `<div class="card"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
 
 function spark(arr){
@@ -95,19 +97,27 @@ function renderKpi(){
   const cols = [
     ["#", null], ["KTV", "name"], ["Hôm nay", "todaySt"],
     ...P[0].checks.map((c,i) => [`${c.name}<br><span class="muted">${esc(c.target)}</span>`, "c"+i]),
-    ["Xu hướng tồn", null], ["Điểm KPI", "score"],
+    ["Tổng điểm", "total"], ["Xếp loại", "rank"], ["Đạt KPI", "score"],
+    ...P[0].ops.map((c,i) => [`${c.name}<br><span class="muted">${esc(c.target)}</span>`, "o"+i]),
+    ["Xu hướng tồn", null],
   ];
+  const num = v => typeof v === "string" ? (parseFloat(v) || 0) : (v ?? 0);
   const val = (p,k) => k === "name" ? p.name : k === "todaySt" ? p.today.st : k === "score" ? p.score
-    : (v => typeof v === "string" ? parseFloat(v) || 0 : v)(p.checks[+k.slice(1)].val);
+    : k === "total" ? (p.pbi ? p.pbi.total ?? -1 : -1) : k === "rank" ? (p.pbi ? "LMSO".indexOf(p.pbi.rank) : -2)
+    : num((k[0] === "o" ? p.ops : p.checks)[+k.slice(1)].val);
+  const cell = c => `<td class="n ${c.ok === null ? "" : c.ok ? "ok" : "bad"}" title="${c.ok === null ? "Chưa có dữ liệu" : ""}">${esc(c.val)}</td>`;
   const rows = [...P].sort((a,b) => { const x = val(a,sortKey), y = val(b,sortKey); return (x > y ? 1 : x < y ? -1 : 0) * sortDir; });
   $("#p-kpi").innerHTML = `<table><thead><tr>${cols.map(([h,k]) => `<th class="n" data-k="${k||""}">${h}</th>`).join("")}</tr></thead><tbody>${
     rows.map((p,i) => `<tr><td class="n">${i+1}</td>
-      <td><b>${esc(p.name)}</b><br><span class="muted">${p.code} · ${esc(p.acc)} · ${esc(p.phone)}</span></td>
+      <td><b>${esc(p.name)}</b><br><span class="muted">${p.code} · ${esc(p.acc)} · ${esc(p.phone)}${p.pbi ? ` · bậc ${p.pbi.level ?? "-"} · ${p.pbi.tk ?? 0} TK/${p.pbi.bt ?? 0} BT` : ""}</span></td>
       <td class="n"><span class="pill p-${p.today.st}">${ST[p.today.st] || "-"}</span><br><span class="muted">${esc(p.today.time)}</span></td>
-      ${p.checks.map(c => `<td class="n ${c.ok === null ? "" : c.ok ? "ok" : "bad"}" title="${c.ok === null ? "Chưa có dữ liệu" : ""}">${esc(c.val)}</td>`).join("")}
-      <td class="n">${spark(p.trend)}</td>
-      <td class="n"><span class="score" style="${scoreColor(p.score)}">${p.score}/${maxScore}</span></td></tr>`).join("")
-  }</tbody></table><p class="muted">Bấm tiêu đề cột để sắp xếp. Xanh = đạt chỉ tiêu, đỏ = chưa đạt. Ngày công tính theo điểm danh ho.mypt.vn đến hôm nay; chỉ tiêu chia theo số ngày đã qua trong tháng.</p>`;
+      ${p.checks.map(cell).join("")}
+      <td class="n"><b>${p.pbi && p.pbi.total != null ? p.pbi.total.toFixed(2) : "-"}</b></td>
+      <td class="n"><span class="pill rk-${esc(p.pbi ? p.pbi.rank : "")}">${esc(p.pbi ? p.pbi.rank || "-" : "-")}</span></td>
+      <td class="n"><span class="score" style="${scoreColor(p.score)}">${p.score}/${maxScore}</span></td>
+      ${p.ops.map(cell).join("")}
+      <td class="n">${spark(p.trend)}</td></tr>`).join("")
+  }</tbody></table><p class="muted">Bấm tiêu đề cột để sắp xếp. Xanh = đạt, đỏ = chưa đạt, trống = chưa có dữ liệu. 7 KPI, Tổng điểm, Xếp loại lấy từ Power BI "Sức khỏe chi nhánh" (đội trưởng ${esc(D.kpi.doi_truong)}, lấy lúc ${esc(D.pbi_at || "-")}). Các cột sau "Đạt KPI" là chỉ số vận hành: ngày công theo điểm danh ho.mypt.vn so với lịch trực, tồn ca và checklist theo file báo cáo.</p>`;
   document.querySelectorAll("#p-kpi th[data-k]").forEach(th => th.onclick = () => {
     const k = th.dataset.k; if (!k) return; sortDir = sortKey === k ? -sortDir : (k === "name" ? 1 : -1); sortKey = k; renderKpi();
   });
@@ -159,14 +169,18 @@ renderTon();
 
 // ---- Config ----
 const K = D.kpi;
-$("#p-cfg").innerHTML = `<div class="card"><h3 style="margin-top:0">Chỉ tiêu KPI (sửa trong file kpi.json)</h3><table><tbody>
-  <tr><td>Ngày công chuẩn / tháng</td><td>${K.ngay_cong_chuan_thang} công (chia theo số ngày đã qua)</td></tr>
+$("#p-cfg").innerHTML = `<div class="card"><h3 style="margin-top:0">KPI sức khỏe (Power BI Sức khỏe chi nhánh)</h3><table><tbody>
+  ${D.kpi_defs.map(([n,op,t,k]) => `<tr><td>${esc(n)}</td><td>${op === ">=" ? "≥" : "≤"} ${k === "pct" ? +(t*100).toFixed(2) + "%" : t + (k === "h" ? "h" : "")}</td></tr>`).join("")}
+  <tr><td>Đội trưởng lọc</td><td>${esc(K.doi_truong)} (sửa "doi_truong" trong kpi.json)</td></tr></tbody></table>
+  <h3>Chỉ số vận hành (sửa trong file kpi.json)</h3><table><tbody>
+  <tr><td>Ngày công</td><td>Theo lịch trực đến hôm nay (không có lịch thì ${K.ngay_cong_chuan_thang} công/tháng chia theo ngày đã qua)</td></tr>
   <tr><td>Đúng giờ</td><td>Điểm danh trước ${esc(K.gio_vao_ca)} ≥ ${K.dung_gio_min_pct}% số ngày đi làm</td></tr>
   <tr><td>Tồn ca tối đa</td><td>${K.ton_ca_max} HĐ</td></tr>
   <tr><td>Quá hẹn xanh tối đa</td><td>${K.qua_hen_max}</td></tr>
   <tr><td>Checklist ≥ 24h tối đa</td><td>${K.checklist24_max}</td></tr>
   <tr><td>Checklist lặp tối đa</td><td>${K.checklist_lap_max}</td></tr></tbody></table>
   <h3>Nguồn dữ liệu</h3><table><tbody>
+  <tr><td>KPI sức khỏe</td><td>Power BI "Sức khỏe chi nhánh" (ho.mypt.vn) — lấy lúc ${esc(D.pbi_at || "chưa có")}</td></tr>
   <tr><td>Nhân viên, điểm danh</td><td>ho.mypt.vn — lấy lúc ${esc(D.mypt_at || "chưa có")}</td></tr>
   <tr><td>Tồn ca</td><td>${D.ton_meta ? esc(D.ton_meta.file) : "chưa có"} · xu hướng từ ${D.trend_dates.length} báo cáo (${esc(D.trend_dates.join(", "))})</td></tr>
   <tr><td>Checklist ≥ 24h / lặp</td><td>${D.chk_meta ? esc(D.chk_meta.file) + " (" + esc(D.chk_meta.date) + ")" : "chưa có"}</td></tr>

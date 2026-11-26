@@ -6,7 +6,7 @@ Nguon du lieu:
   Chi so do*.xlsx / bao cao SOC*.xlsx (checklist >= 24h, checklist lap).
 Chi tieu KPI doc tu kpi.json (tu tao neu chua co).
 """
-import csv, datetime, glob, json, math, os, re, sys, unicodedata
+import csv, datetime, glob, gzip, json, math, os, re, sys, unicodedata, urllib.request
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DL_DIR = os.environ.get("DL_DIR", os.path.join(os.path.expanduser("~"), "Downloads"))
@@ -26,7 +26,24 @@ DEFAULT_KPI = {
     "qua_hen_max": 0,
     "checklist24_max": 0,
     "checklist_lap_max": 0,
+    "doi_truong": "Lê Đình Lâm",
 }
+
+# Bang KPI "BÁO CÁO CHỈ SỐ SỨC KHỎE | CHI TIẾT NHÂN VIÊN" (Power BI Sức khỏe chi nhánh tren ho.mypt.vn)
+PBI_URL = "https://wabi-south-east-asia-api.analysis.windows.net/public/reports/querydata?synchronous=true"
+PBI_KEY = "c3cd9598-287e-4da5-a85f-0e8e9b1040eb"
+PBI_QUERY = os.path.join(BASE, "pbi_suckhoe_query.json")
+PBI_CACHE = os.path.join(BASE, "pbi_cache.json")
+# (ten, measure, so sanh, nguong, dinh dang)
+KPI_DEFS = [
+    ("% Đúng hẹn", "measure.% ontime", ">=", 0.95, "pct"),
+    ("TGXL TK", "measure.TGXLTB TK", "<=", 18, "h"),
+    ("TGXL BT", "measure.TGXLTB BT", "<=", 8, "h"),
+    ("% CLL", "measure.% CLL2", "<=", 0.085, "pct"),
+    ("CSAT 1,2 CLDV", "measure.%csat12_lan2", "<=", 0.03, "pct"),
+    ("NSLĐ", "measure.1 NSLĐ", ">=", 7, "num"),
+    ("% Rời mạng", "measure.%RM_nv", "<=", 0.006, "pct"),
+]
 
 
 def log(msg):
@@ -171,6 +188,98 @@ def get_lichtruc():
             if data.get("month") == datetime.date.today().month:
                 return data, f"Không lấy được lịch trực mới ({e}). Đang dùng lịch trực lúc {data.get('fetched_at')}."
         return None, f"Không lấy được lịch trực từ partner.fpt.net ({e}); dùng file lịch trực trong Downloads nếu có."
+
+
+def dsr_rows(data):
+    """Giai nen ket qua querydata (DSR) cua Power BI thanh list dict {ten cot: gia tri}."""
+    names = {x["Value"]: x["Name"] for x in data["descriptor"]["Select"]}
+    ds = data["dsr"]["DS"][0]
+    vd = ds.get("ValueDicts", {})
+    schema, prev, out = {}, {}, []
+
+    def walk(key, rows, ctx):
+        for row in rows:
+            if "S" in row:
+                schema[key] = row["S"]
+                prev[key] = [None] * len(row["S"])
+            cols, vals = schema[key], []
+            it = iter(row.get("C", []))
+            rep, nul = row.get("R", 0), row.get("Ø", 0)
+            for i, col in enumerate(cols):
+                if rep >> i & 1:
+                    v = prev[key][i]
+                elif nul >> i & 1:
+                    v = None
+                else:
+                    v = next(it) if "C" in row else row.get(col["N"])
+                    if col.get("DN") and isinstance(v, int):
+                        v = vd[col["DN"]][v]
+                vals.append(v)
+            prev[key] = vals
+            nctx = dict(ctx, **{names.get(c["N"], c["N"]): v for c, v in zip(cols, vals)})
+            subs = [(k, v) for m in row.get("M", []) for k, v in m.items() if k.startswith("DM")]
+            if subs:
+                for k, v in subs:
+                    walk(k, v, nctx)
+            else:
+                out.append(nctx)
+
+    for ph in ds["PH"]:
+        for k, v in ph.items():
+            walk(k, v, {})
+    return out
+
+
+def fetch_pbi_raw(captain, year, month):
+    with open(PBI_QUERY, encoding="utf-8") as f:
+        q = json.load(f)
+    where = q["queries"][0]["Query"]["Commands"][0]["SemanticQueryDataShapeCommand"]["Query"]["Where"]
+    for w in where:
+        cond = w["Condition"].get("In")
+        if not cond:
+            continue
+        props = [e["Column"]["Property"] for e in cond["Expressions"]]
+        if props == ["captain_full_name"]:
+            cond["Values"] = [[{"Literal": {"Value": "'%s'" % captain.replace("'", "''")}}]]
+        elif props == ["Nam_quy", "month"]:
+            cond["Values"] = [[{"Literal": {"Value": f"'{year}-Q{(month - 1) // 3 + 1}'"}}, {"Literal": {"Value": f"{month}L"}}]]
+    req = urllib.request.Request(PBI_URL, data=json.dumps(q, ensure_ascii=False).encode(),
+                                 headers={"X-PowerBI-ResourceKey": PBI_KEY, "Content-Type": "application/json;charset=UTF-8"})
+    raw = urllib.request.urlopen(req, timeout=90).read()
+    if raw[:2] == b"\x1f\x8b":
+        raw = gzip.decompress(raw)
+    data = json.loads(raw)["results"][0]["result"]["data"]
+    res = {}
+    for r in dsr_rows(data):
+        code = str(r.get("Dim_captain.emp_code") or "").zfill(8)
+        res[code] = {k: (float(v) if isinstance(v, str) and re.fullmatch(r"-?[\d.]+(E-?\d+)?", v) else v) for k, v in r.items()}
+    return res
+
+
+def get_pbi(captain):
+    today = datetime.date.today()
+    try:
+        rows = fetch_pbi_raw(captain, today.year, today.month)
+        if not rows:
+            raise RuntimeError(f"không có dòng nào cho đội trưởng {captain}")
+        data = {"rows": rows, "fetched_at": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"), "month": today.month}
+        with open(PBI_CACHE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        return data, None
+    except Exception as e:
+        log(f"[LOI] power bi: {e}")
+        if os.path.exists(PBI_CACHE):
+            with open(PBI_CACHE, encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("month") == today.month:
+                return data, f"Không lấy được KPI Power BI mới ({e}). Đang dùng số lúc {data.get('fetched_at')}."
+        return None, f"Không lấy được KPI từ Power BI Sức khỏe chi nhánh ({e})."
+
+
+def fmt_kpi(v, kind):
+    if v is None:
+        return "-"
+    return f"{v * 100:.2f}%" if kind == "pct" else f"{v:.2f}"
 
 
 def get_mypt():
@@ -367,6 +476,7 @@ def build_data():
     ton, trend, ton_meta = build_ton(acc_to_code)
     chk, chk_meta = build_checklist(acc_to_code)
     lt, lt_warn = get_lichtruc()
+    pbi, pbi_warn = get_pbi(kpi["doi_truong"])
     plan, plan_meta = build_plan(codes, today.year, today.month, lt)
 
     att = {}
@@ -395,7 +505,14 @@ def build_data():
         c24 = chk.get(code, {}).get("c24", 0)
         lap = chk.get(code, {}).get("lap", 0)
         t = a.get(today.day)
-        checks = [
+        pr = (pbi or {}).get("rows", {}).get(code)
+        checks = []
+        for name, meas, op, thr, kind in KPI_DEFS:
+            v = (pr or {}).get(meas)
+            v = v if isinstance(v, (int, float)) else None
+            ok = None if v is None else (v >= thr - 1e-12 if op == ">=" else v <= thr + 1e-12)
+            checks.append({"name": name, "val": fmt_kpi(v, kind), "target": f"{'≥' if op == '>=' else '≤'} {fmt_kpi(thr, kind).replace('.00', '')}{'h' if kind == 'h' else ''}", "ok": ok})
+        ops = [
             {"name": "Ngày công", "val": cong, "target": f"≥ {target_days}", "ok": cong >= target_days - 1e-9},
             {"name": "Đúng giờ", "val": f"{ontime_pct}%" if ontime_pct is not None else "-",
              "target": f"≥ {kpi['dung_gio_min_pct']}%", "ok": ontime_pct is not None and ontime_pct >= kpi["dung_gio_min_pct"]},
@@ -405,16 +522,16 @@ def build_data():
             {"name": "Checklist lặp", "val": lap, "target": f"≤ {kpi['checklist_lap_max']}", "ok": lap <= kpi["checklist_lap_max"]},
         ]
         mapped = bool(e.get("acc"))
-        for c in checks[2:4]:
+        for c in ops[2:4]:
             if not (ton_meta and mapped):
                 c["val"], c["ok"] = "-", None
-        for c in checks[4:6]:
+        for c in ops[4:6]:
             if not (chk_meta and mapped):
                 c["val"], c["ok"] = "-", None
         pl = plan.get(code)
         if pl:
             tgt = sum(SHIFT_DAY.get(pl.get(d, ""), 0) for d in range(1, today.day + 1))
-            checks[0]["target"], checks[0]["ok"] = f"≥ {tgt:g} (theo lịch)", cong >= tgt - 1e-9
+            ops[0]["target"], ops[0]["ok"] = f"≥ {tgt:g} (theo lịch)", cong >= tgt - 1e-9
         cal = {}
         for d in range(1, days_in_month + 1):
             c = a.get(d)
@@ -437,10 +554,17 @@ def build_data():
             "block": next((c["block"] for c in a.values() if c.get("block")), ""),
             "today": {"st": cal[today.day]["st"], "time": (t or {}).get("time") or "", "plan": cal[today.day]["plan"]},
             "cong": cong, "ontime_pct": ontime_pct, "ton": lst, "late": late, "c24": c24, "lap": lap,
-            "checks": checks, "score": sum(1 for c in checks if c["ok"] is True), "cal": cal,
+            "checks": checks, "score": sum(1 for c in checks if c["ok"] is True), "cal": cal, "ops": ops,
+            "pbi": {"total": (pr or {}).get("measure.total_score_csatlan2"), "rank": (pr or {}).get("measure.xep_loai_csatlan2"),
+                    "level": (pr or {}).get("Sum(Dim_captain.level)"), "au": (pr or {}).get("measure.AU"),
+                    "tk": (pr or {}).get("measure.Slg_Triển_khai"), "bt": (pr or {}).get("measure.Slg BT")} if pr else None,
             "trend": [trend[d].get(code, 0) for d in trend],
         })
-    warns = [w for w in [mypt_warn, lt_warn] if w]
+    warns = [w for w in [mypt_warn, lt_warn, pbi_warn] if w]
+    if pbi:
+        miss = [k["name"] for k in ktv if k["code"] not in pbi["rows"]]
+        if miss:
+            warns.append("Power BI chưa có KPI của: " + ", ".join(miss) + ".")
     if ton_meta and ton_meta["date"] != str(today):
         warns.append(f"Báo cáo tồn mới nhất là ngày {ton_meta['date']} — tải file bao_cao_chi_tiet_ton hôm nay vào Downloads để cập nhật.")
     if not ton_meta:
@@ -449,6 +573,7 @@ def build_data():
         "generated": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"), "today": today.day, "month": today.month,
         "year": today.year, "days": days_in_month, "kpi": kpi, "people": people, "trend_dates": list(trend),
         "ton_meta": ton_meta, "chk_meta": chk_meta, "plan_meta": plan_meta, "mypt_at": mypt.get("fetched_at"), "warns": warns,
+        "pbi_at": (pbi or {}).get("fetched_at"), "kpi_defs": [[n, op, t, k] for n, _, op, t, k in KPI_DEFS],
     }
 
 
