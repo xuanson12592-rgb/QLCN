@@ -334,6 +334,8 @@ def run(dry_run=False):
                             sent[rk] = datetime.now().isoformat(timespec="seconds")
                             log(f"  [OK] Da gui {row['ho_ten']} ({phone})")
                         except Exception as e:
+                            if "has been closed" in str(e):
+                                raise
                             fails[rk] = fails.get(rk, 0) + 1
                             log(f"  [LOI] Gui {row['ho_ten']} ({phone}) that bai lan {fails[rk]}: {e}")
                             if fails[rk] < MAX_RETRY:
