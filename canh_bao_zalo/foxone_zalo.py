@@ -285,7 +285,7 @@ def zalo_send(page, phone, message):
 
 def run(dry_run=False):
     from playwright.sync_api import sync_playwright
-    ktv_map = load_ktv()
+    ktv_map, ktv_mtime = load_ktv(), os.path.getmtime(KTV_FILE)
     state = load_state()
     with sync_playwright() as p:
         ctx = open_browser(p)
@@ -301,6 +301,9 @@ def run(dry_run=False):
                     fchat.reload(wait_until="domcontentloaded")
                     fchat.wait_for_timeout(5000)
                     last_reload = time.time()
+                if os.path.getmtime(KTV_FILE) != ktv_mtime:
+                    ktv_map, ktv_mtime = load_ktv(), os.path.getmtime(KTV_FILE)
+                    log(f"Da nap lai ktv.csv ({len(ktv_map)} KTV)")
                 ensure_foxone(fchat)
                 alerts = parse_alerts(read_foxone_text(fchat))
                 if not state.get("initialized"):
