@@ -1,0 +1,689 @@
+{
+ "version": "1.0.0",
+ "queries": [
+  {
+   "Query": {
+    "Commands": [
+     {
+      "SemanticQueryDataShapeCommand": {
+       "Query": {
+        "Version": 2,
+        "From": [
+         {
+          "Name": "d",
+          "Entity": "Dim_captain",
+          "Type": 0
+         },
+         {
+          "Name": "m",
+          "Entity": "measure",
+          "Type": 0
+         },
+         {
+          "Name": "d1",
+          "Entity": "Diem_nsld",
+          "Type": 0
+         },
+         {
+          "Name": "d2",
+          "Entity": "Dates",
+          "Type": 0
+         }
+        ],
+        "Select": [
+         {
+          "Column": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "d"
+            }
+           },
+           "Property": "area"
+          },
+          "Name": "Dim_captain.area",
+          "NativeReferenceName": "Khu vực"
+         },
+         {
+          "Column": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "d"
+            }
+           },
+           "Property": "branch"
+          },
+          "Name": "Dim_captain.branch",
+          "NativeReferenceName": "Chi nhánh"
+         },
+         {
+          "Column": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "d"
+            }
+           },
+           "Property": "captain_full_name"
+          },
+          "Name": "Dim_captain.captain_full_name",
+          "NativeReferenceName": "Họ tên đội trưởng1"
+         },
+         {
+          "Column": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "d"
+            }
+           },
+           "Property": "emp_code"
+          },
+          "Name": "Dim_captain.emp_code",
+          "NativeReferenceName": "Mã nhân viên"
+         },
+         {
+          "Column": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "d"
+            }
+           },
+           "Property": "act_mobi"
+          },
+          "Name": "Dim_captain.act_mobi",
+          "NativeReferenceName": "Account nhân viên"
+         },
+         {
+          "Aggregation": {
+           "Expression": {
+            "Column": {
+             "Expression": {
+              "SourceRef": {
+               "Source": "d"
+              }
+             },
+             "Property": "level"
+            }
+           },
+           "Function": 4
+          },
+          "Name": "Sum(Dim_captain.level)",
+          "NativeReferenceName": "Bậc nghề"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "AU"
+          },
+          "Name": "measure.AU",
+          "NativeReferenceName": "AU1"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "%_ontime"
+          },
+          "Name": "measure.% ontime",
+          "NativeReferenceName": "% Đúng hẹn (≥ 95%)"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "TGXLTB_TK"
+          },
+          "Name": "measure.TGXLTB TK",
+          "NativeReferenceName": "TGXL TK (≤ 18h)"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "TGXLTB_BT"
+          },
+          "Name": "measure.TGXLTB BT",
+          "NativeReferenceName": "TGXL BT (≤ 8h)"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "%_CLL"
+          },
+          "Name": "measure.% CLL2",
+          "NativeReferenceName": "  %   CLL (≤ 8.5%)"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "%csat12_lan2"
+          },
+          "Name": "measure.%csat12_lan2",
+          "NativeReferenceName": "CSAT 1,2 CLDV (≤ 3%)"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "NSLĐ"
+          },
+          "Name": "measure.1 NSLĐ",
+          "NativeReferenceName": "Tổng điểm NSLĐ (≥ 7)"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "%RM_nv"
+          },
+          "Name": "measure.%RM_nv",
+          "NativeReferenceName": "% Rời mạng (≤ 0.6%)"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "total_score_csatlan2"
+          },
+          "Name": "measure.total_score_csatlan2",
+          "NativeReferenceName": "Tổng điểm"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "xep_loai_csatlan2"
+          },
+          "Name": "measure.xep_loai_csatlan2",
+          "NativeReferenceName": "Xếp loại OSML"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "Slg_Triển_khai"
+          },
+          "Name": "measure.Slg_Triển_khai",
+          "NativeReferenceName": "Slg ca triển khai"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "Slg BT"
+          },
+          "Name": "measure.Slg BT",
+          "NativeReferenceName": "Slg ca bảo trì"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "Điểm triển khai"
+          },
+          "Name": "measure.Điểm triển khai",
+          "NativeReferenceName": "Điểm triển khai"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "Điểm bảo trì"
+          },
+          "Name": "measure.Điểm bảo trì",
+          "NativeReferenceName": "Điểm bảo trì"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "Điểm thu cước"
+          },
+          "Name": "measure.Điểm thu cước",
+          "NativeReferenceName": "Điểm thu cước"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "Điểm thu hồi"
+          },
+          "Name": "measure.Điểm thu hồi",
+          "NativeReferenceName": "Điểm thu hồi"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "Điểm xác minh KH"
+          },
+          "Name": "measure.Điểm xác minh KH",
+          "NativeReferenceName": "Điểm xác minh KH"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "Điểm CSKH CĐ"
+          },
+          "Name": "measure.Điểm CSKH CĐ",
+          "NativeReferenceName": "Điểm CSKH CĐ"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "Điểm Gsafe"
+          },
+          "Name": "measure.Điểm Gsafe",
+          "NativeReferenceName": "Điểm Gsafe"
+         },
+         {
+          "Measure": {
+           "Expression": {
+            "SourceRef": {
+             "Source": "m"
+            }
+           },
+           "Property": "Điểm hạ tầng"
+          },
+          "Name": "measure.Điểm hạ tầng",
+          "NativeReferenceName": "Điểm hạ tầng"
+         }
+        ],
+        "Where": [
+         {
+          "Condition": {
+           "Not": {
+            "Expression": {
+             "Comparison": {
+              "ComparisonKind": 0,
+              "Left": {
+               "Measure": {
+                "Expression": {
+                 "SourceRef": {
+                  "Source": "m"
+                 }
+                },
+                "Property": "Slg_ca_vu"
+               }
+              },
+              "Right": {
+               "Literal": {
+                "Value": "null"
+               }
+              }
+             }
+            }
+           }
+          },
+          "Target": [
+           {
+            "Column": {
+             "Expression": {
+              "SourceRef": {
+               "Source": "d"
+              }
+             },
+             "Property": "area"
+            }
+           },
+           {
+            "Column": {
+             "Expression": {
+              "SourceRef": {
+               "Source": "d"
+              }
+             },
+             "Property": "branch"
+            }
+           },
+           {
+            "Column": {
+             "Expression": {
+              "SourceRef": {
+               "Source": "d"
+              }
+             },
+             "Property": "captain_full_name"
+            }
+           },
+           {
+            "Column": {
+             "Expression": {
+              "SourceRef": {
+               "Source": "d"
+              }
+             },
+             "Property": "emp_code"
+            }
+           },
+           {
+            "Column": {
+             "Expression": {
+              "SourceRef": {
+               "Source": "d"
+              }
+             },
+             "Property": "act_mobi"
+            }
+           }
+          ]
+         },
+         {
+          "Condition": {
+           "In": {
+            "Expressions": [
+             {
+              "Column": {
+               "Expression": {
+                "SourceRef": {
+                 "Source": "d"
+                }
+               },
+               "Property": "captain_full_name"
+              }
+             }
+            ],
+            "Values": [
+             [
+              {
+               "Literal": {
+                "Value": "'Lê Đình Lâm'"
+               }
+              }
+             ]
+            ]
+           }
+          }
+         },
+         {
+          "Condition": {
+           "In": {
+            "Expressions": [
+             {
+              "Column": {
+               "Expression": {
+                "SourceRef": {
+                 "Source": "d"
+                }
+               },
+               "Property": "Nam_quy"
+              }
+             },
+             {
+              "Column": {
+               "Expression": {
+                "SourceRef": {
+                 "Source": "d"
+                }
+               },
+               "Property": "month"
+              }
+             }
+            ],
+            "Values": [
+             [
+              {
+               "Literal": {
+                "Value": "'2026-Q4'"
+               }
+              },
+              {
+               "Literal": {
+                "Value": "11L"
+               }
+              }
+             ]
+            ]
+           }
+          }
+         },
+         {
+          "Condition": {
+           "Comparison": {
+            "ComparisonKind": 2,
+            "Left": {
+             "Column": {
+              "Expression": {
+               "SourceRef": {
+                "Source": "d2"
+               }
+              },
+              "Property": "Date"
+             }
+            },
+            "Right": {
+             "DateSpan": {
+              "Expression": {
+               "Literal": {
+                "Value": "datetime'2025-04-01T00:00:00'"
+               }
+              },
+              "TimeUnit": 5
+             }
+            }
+           }
+          }
+         },
+         {
+          "Condition": {
+           "Not": {
+            "Expression": {
+             "In": {
+              "Expressions": [
+               {
+                "Column": {
+                 "Expression": {
+                  "SourceRef": {
+                   "Source": "d"
+                  }
+                 },
+                 "Property": "captain_full_name"
+                }
+               }
+              ],
+              "Values": [
+               [
+                {
+                 "Literal": {
+                  "Value": "null"
+                 }
+                }
+               ],
+               [
+                {
+                 "Literal": {
+                  "Value": "'(TTS)'"
+                 }
+                }
+               ],
+               [
+                {
+                 "Literal": {
+                  "Value": "'0'"
+                 }
+                }
+               ],
+               [
+                {
+                 "Literal": {
+                  "Value": "'Chưa xác định'"
+                 }
+                }
+               ]
+              ]
+             }
+            }
+           }
+          }
+         }
+        ],
+        "OrderBy": [
+         {
+          "Direction": 1,
+          "Expression": {
+           "Column": {
+            "Expression": {
+             "SourceRef": {
+              "Source": "d"
+             }
+            },
+            "Property": "area"
+           }
+          }
+         }
+        ]
+       },
+       "Binding": {
+        "Primary": {
+         "Groupings": [
+          {
+           "Projections": [
+            0
+           ]
+          },
+          {
+           "Projections": [
+            1
+           ]
+          },
+          {
+           "Projections": [
+            2
+           ]
+          },
+          {
+           "Projections": [
+            3
+           ]
+          },
+          {
+           "Projections": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25
+           ]
+          }
+         ]
+        },
+        "DataReduction": {
+         "DataVolume": 3,
+         "Primary": {
+          "Window": {
+           "Count": 500
+          }
+         }
+        },
+        "Aggregates": [
+         {
+          "Select": 14,
+          "Aggregations": [
+           {
+            "Min": {}
+           },
+           {
+            "Max": {}
+           }
+          ]
+         }
+        ],
+        "Version": 1
+       },
+       "ExecutionMetricsKind": 1
+      }
+     }
+    ]
+   },
+   "QueryId": "",
+   "ApplicationContext": {
+    "DatasetId": "37063f3c-0bab-4f5b-9399-bac1c0098f91",
+    "Sources": [
+     {
+      "ReportId": "95d98e39-d27e-4389-8d54-a7f99e6d3411",
+      "VisualId": "9c672a2ca90302978945"
+     }
+    ]
+   }
+  }
+ ],
+ "cancelQueries": [],
+ "modelId": 7980980
+}
