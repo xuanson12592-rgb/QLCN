@@ -2,7 +2,8 @@
 
 Nguon du lieu:
 - ho.mypt.vn (qua Chrome bot, cong CDP 9333): danh sach nhan vien + diem danh thang hien tai.
-- Thu muc Downloads: bao_cao_chi_tiet_ton__YYYY-MM-DD.xlsx (ton ca), lich truc*.xls(x),
+- inside.fpt.net > Ton giam sat (ton ca; du phong: Downloads/bao_cao_chi_tiet_ton__YYYY-MM-DD.xlsx),
+- Thu muc Downloads: lich truc*.xls(x),
   Chi so do*.xlsx / bao cao SOC*.xlsx (checklist >= 24h, checklist lap).
 Chi tieu KPI doc tu kpi.json (tu tao neu chua co).
 """
@@ -145,7 +146,7 @@ def fetch_lichtruc_raw():
         left = next((f for pg in ctx.pages for f in pg.frames if "left.asp" in f.url.lower()), None)
         if left:
             try:
-                left.locator("a", has_text="Lịch trực").first.click(timeout=15000)
+                left.locator("a", has_text="Lịch trực").first.dispatch_event("click")
                 left.page.wait_for_timeout(6000)
             except Exception as e:
                 log(f"[LOI] mo menu Lich truc: {e}")
@@ -362,6 +363,130 @@ def fmt_dt(d):
     return d.strftime("%d/%m %H:%M") if d else ""
 
 
+TON_CACHE = os.path.join(BASE, "ton_cache.json")
+TON_DETAIL_API = "/optimal-assign/report-pctu/Monitor/MonitorReport/MonitorOfDetailVer2?handler=GetDataMonitorOfDetail"
+_SLOTS = [("06:00", "08:00"), ("08:00", "10:00"), ("10:00", "12:00"), ("12:00", "13:30"), ("13:30", "15:30"),
+          ("15:30", "17:30"), ("17:30", "19:30"), ("19:30", "21:30"), ("21:30", "23:30")]
+_ALLDAY = ("08:00", "17:30")
+# cot khung gio cua bang chi tiet Ton giam sat -> (loai ca, khung gio hen)
+TON_SLOTS = {"TIMEZONETKNEW19": ("TK", _ALLDAY), "TIMEZONEBTALLDAYVAT": ("BT Vật lý", _ALLDAY),
+             "TIMEZONEBTALLDAYLOG": ("BT Logic", _ALLDAY)}
+for _i, _s in enumerate(_SLOTS):
+    TON_SLOTS[f"TIMEZONETKNEW{_i + 1}"] = ("TK NET", _s)
+    TON_SLOTS[f"TIMEZONETKNEW{_i + 10}"] = ("TK BOX", _s)
+    TON_SLOTS[f"TIMEZONEBTNEW{_i + 1}"] = ("BT Vật lý", _s)
+    TON_SLOTS[f"TIMEZONEBTNEW{_i + 10}"] = ("BT Logic", _s)
+
+
+def fetch_ton_raw():
+    """Danh sach ca da phan cong (ton) tu inside.fpt.net > Ton giam sat (can phien inside trong Chrome bot)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        ctx = p.chromium.connect_over_cdp(CDP_URL).contexts[0]
+        left = next((f for pg in ctx.pages for f in pg.frames if "left.asp" in f.url.lower()), None)
+        if left is None:
+            raise RuntimeError("chưa đăng nhập inside.fpt.net trong Chrome bot")
+        pg = left.page
+        # muc menu co the dang bi thu gon nen khong click() duoc; kich hoat onclick truc tiep
+        left.get_by_text("Tồn giám sát", exact=True).first.dispatch_event("click")
+        pg.wait_for_timeout(4000)  # cho khung cu (neu co) tai lai xong
+        for _ in range(30):
+            fr = next((f for f in pg.frames if "mainmonitor" in f.url.lower()), None)
+            if fr and fr.get_by_text("Xem báo cáo", exact=True).count():
+                break
+            pg.wait_for_timeout(1000)
+        else:
+            raise RuntimeError("không mở được trang Tồn giám sát")
+        with pg.expect_response(lambda r: "handler=ISMonitorIndex" in r.url, timeout=90000) as info:
+            fr.get_by_text("Xem báo cáo", exact=True).first.click(timeout=15000)
+        main = info.value
+        summary = (main.json() or {}).get("Data") or []
+        if main.status != 200 or not summary:
+            raise RuntimeError(f"Tồn giám sát HTTP {main.status}, không có dữ liệu")
+        filt = json.loads(urllib.parse.parse_qs(main.request.post_data or "")["dataJson"][0])
+        tail_ids = ("Number_Contract", "DateSearch")
+        sub = summary[0]["SubParentDescVN"].replace("Vùng", "Vung")
+        # Type 3 = trien khai + bao tri, Status 1 = tong ca phan cong chinh, Reason 55 = cot "Tong"
+        detail = [{"id": k, "value": [v], "namepar": "@" + k} for k, v in [
+            ("Type", "3"), ("Status", "1"), ("SmallSubParentDesc", sub), ("SmallPartner", None),
+            ("SmallBlock", None), ("SmallEmployee", None), ("Net", 0), ("Box", 0), ("Vat", 0),
+            ("Log", 0), ("Camera", 0), ("Reason", 55)]]
+        data = [f for f in filt if f["id"] not in tail_ids] + detail + [f for f in filt if f["id"] in tail_ids]
+        res = fr.evaluate("""([url, d]) => new Promise(ok => $.ajax({
+            url: url, data: {dataJson: JSON.stringify(d)}, type: 'POST',
+            beforeSend: x => x.setRequestHeader('XSRF-TOKEN', $('input:hidden[name="__RequestVerificationToken"]').val()),
+            success: ok, error: x => ok({Status: false, http: x.status})}))""", [TON_DETAIL_API, data])
+        if not res or not res.get("Status"):
+            raise RuntimeError(f"chi tiết Tồn giám sát lỗi (HTTP {(res or {}).get('http')})")
+        rows = res.get("Data") or []
+        return json.loads(rows) if isinstance(rows, str) else rows
+
+
+def ton_item(r, now):
+    key = next((k for k in TON_SLOTS if r.get(k)), None)
+    if key:
+        kind, slot = TON_SLOTS[key]
+        hd = str(r[key])
+    else:
+        kind, slot, hd = {1: "TK", 2: "BT"}.get(r.get("COLOR"), ""), None, str(r.get("TIMEZONENA") or "")
+    try:
+        day = datetime.datetime.fromisoformat(str(r.get("Appointmentdate") or ""))
+    except ValueError:
+        day = None
+    start = end = None
+    if day and slot:
+        start, end = (datetime.datetime.combine(day.date(), datetime.time(*map(int, t.split(":")))) for t in slot)
+    elif day:
+        start, end = day, day + datetime.timedelta(days=1)
+    if start and slot:
+        xanh = f"{start:%d/%m} {slot[0]} - {slot[1]}"
+    else:
+        xanh = f"{start:%d/%m}" if start else "Chưa hẹn"
+    red = r.get("ISBLUE") in (0, 2, 3)
+    return {"hd": hd, "kh": "", "status": "", "type": kind, "xanh": xanh, "do": "Có" if red else "",
+            "xanh_ts": start.isoformat() if start else "", "late": bool(end and end < now), "red": red,
+            "note": str(r.get("LOYALTY") or "")}
+
+
+def get_ton_live(acc_to_code):
+    """(current, trend, meta, warn) tu inside.fpt.net; current=None neu khong lay duoc va khong co cache hom nay."""
+    today = str(datetime.date.today())
+    cache = {}
+    if os.path.exists(TON_CACHE):
+        try:
+            with open(TON_CACHE, encoding="utf-8") as f:
+                cache = json.load(f)
+        except Exception:
+            cache = {}
+    trend, warn = cache.get("trend") or {}, None
+    try:
+        rows = fetch_ton_raw()
+        now = datetime.datetime.now()
+        current = {}
+        for r in rows:
+            acc = str(r.get("Employee") or "").strip().upper()
+            code = acc_to_code.get(acc) or acc_to_code.get(acc.split(".")[-1])
+            if code:
+                current.setdefault(code, []).append(ton_item(r, now))
+        trend[today] = {c: len(v) for c, v in current.items()}
+        trend = dict(sorted(trend.items())[-60:])
+        cache = {"date": today, "fetched_at": now.strftime("%d/%m/%Y %H:%M"), "current": current, "trend": trend}
+        tmp = TON_CACHE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False)
+        os.replace(tmp, TON_CACHE)
+    except Exception as e:
+        log(f"[LOI] ton giam sat: {e}")
+        if cache.get("date") != today:
+            return None, trend, None, f"Không lấy được tồn ca từ inside.fpt.net ({e})."
+        current = cache["current"]
+        warn = f"Không lấy được tồn ca mới từ inside.fpt.net ({e}). Đang dùng số liệu lúc {cache.get('fetched_at')}."
+    for lst in current.values():
+        lst.sort(key=lambda x: (not x["late"], x["xanh_ts"] or "9"))
+    meta = {"date": today, "file": "inside.fpt.net · Tồn giám sát", "exported": cache["fetched_at"], "live": True}
+    return current, trend, meta, warn
+
+
 def ton_files():
     """{ngay: duong_dan} - moi ngay lay file lon nhat (ban day du)."""
     best = {}
@@ -490,6 +615,10 @@ def build_data():
     days_in_month = ((today.replace(day=28) + datetime.timedelta(days=4)).replace(day=1) - datetime.timedelta(days=1)).day
 
     ton, trend, ton_meta = build_ton(acc_to_code)
+    live, live_trend, live_meta, ton_warn = get_ton_live(acc_to_code)
+    trend = dict(sorted({**trend, **live_trend}.items()))
+    if live is not None:
+        ton, ton_meta = live, live_meta
     chk, chk_meta = build_checklist(acc_to_code)
     lt, lt_warn = get_lichtruc()
     pbi, pbi_warn = get_pbi(kpi["doi_truong"])
@@ -581,10 +710,12 @@ def build_data():
         miss = [k["name"] for k in ktv if k["code"] not in pbi["rows"]]
         if miss:
             warns.append("Power BI chưa có KPI của: " + ", ".join(miss) + ".")
+    if ton_warn:
+        warns.append(ton_warn)
     if ton_meta and ton_meta["date"] != str(today):
-        warns.append(f"Báo cáo tồn mới nhất là ngày {ton_meta['date']} — tải file bao_cao_chi_tiet_ton hôm nay vào Downloads để cập nhật.")
+        warns.append(f"Tồn ca đang lấy từ file {ton_meta['file']} (ngày {ton_meta['date']}) — đăng nhập lại inside.fpt.net trong Chrome bot để tự cập nhật.")
     if not ton_meta:
-        warns.append("Không tìm thấy file bao_cao_chi_tiet_ton__*.xlsx trong Downloads.")
+        warns.append("Chưa có dữ liệu tồn ca: đăng nhập inside.fpt.net trong Chrome bot, hoặc tải file bao_cao_chi_tiet_ton__*.xlsx vào Downloads.")
     return {
         "generated": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"), "today": today.day, "month": today.month,
         "year": today.year, "days": days_in_month, "kpi": {k: v for k, v in kpi.items() if k != "pbi_key"}, "people": people, "trend_dates": list(trend),
