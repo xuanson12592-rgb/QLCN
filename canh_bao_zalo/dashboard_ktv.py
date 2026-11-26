@@ -321,7 +321,8 @@ def build_plan(codes, year, month, lt=None):
             code = str(r.get("CodeStaff") or "").zfill(8)
             if code in codes and int(r.get("Months") or 0) == month and int(r.get("Years") or 0) == year:
                 plan[code] = {d: str(r.get(f"Day{d}") or "").strip() for d in range(1, 32) if str(r.get(f"Day{d}") or "").strip()}
-        return plan, {"file": f"partner.fpt.net (lấy lúc {lt.get('fetched_at')})"}
+        if plan:
+            return plan, {"file": f"partner.fpt.net (lấy lúc {lt.get('fetched_at')})"}
     files = [f for pat in ["lịch trực*.xls*", "lich truc*.xls*", "Lich truc*.xls*"] for f in glob.glob(os.path.join(DL_DIR, pat))]
     for f in sorted(set(files), key=os.path.getmtime, reverse=True):
         plan = plan_from_file(f, codes, year, month)
