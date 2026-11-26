@@ -18,6 +18,7 @@ import csv
 import hashlib
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -40,6 +41,16 @@ POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "15"))
 HEADER_RE = re.compile(r"C[ẢA]NH\s*B[ÁA]O[^\n]*TR[ỄE]\s*H[ẸE]N[^\n]*", re.I)
 SECTION_RE = re.compile(r"^\s*(Tri[ểe]n\s*khai|B[ảa]o\s*tr[ìi])\b", re.I)
 ITEM_RE = re.compile(r"H[ĐD]\s*:\s*([A-Z0-9]+)\s*[—–-]+\s*KTV\s*:\s*(.+?)\s*(?:\d{1,2}:\d{2})?\s*$", re.I)
+DONG_VIEN = [
+    "Anh em kỹ thuật luôn là điểm tựa vững chắc nhất của công ty. Cố gắng hết mình ca này nhé em! 💯",
+    "Khách hàng đang chờ em, xử lý nhanh gọn ca này là mình về đích rồi. Cố lên em! 💪",
+    "Mỗi ca đúng hẹn là một khách hàng hài lòng. Em làm được mà, cố gắng nhé! 🔥",
+    "Chủ động liên hệ khách sớm giúp anh nhé, cả team luôn đứng sau em! 🤝",
+    "Chặng nước rút rồi, dồn sức xử lý dứt điểm ca này nhé em. Cảm ơn em nhiều! 🙏",
+    "Em là người giữ chữ tín cho FPT với khách hàng. Cố lên, đúng hẹn là chiến thắng! 🏆",
+    "Vất vả cho em rồi, ưu tiên ca này giúp anh nhé. Có khó khăn gì báo anh hỗ trợ ngay! 💯",
+    "Tinh thần thép, xử lý đúng hẹn! Cả team tin tưởng em! 🚀",
+]
 TIME_RE = re.compile(r"^\s*\d{1,2}:\d{2}\s*$")
 
 
@@ -139,11 +150,13 @@ def build_messages(alert, ktv_map):
         by_ktv.setdefault(row["dien_thoai"], (row, []))[1].append(it)
     out = {}
     for phone, (row, items) in by_ktv.items():
-        lines = [alert["title"].upper(), f"KTV: {row['ho_ten']}", f"Có {len(items)} ca cần xử lý gấp:"]
+        groups = {}
         for it in items:
-            loai = f" ({it['loai']})" if it["loai"] else ""
-            lines.append(f"• HĐ: {it['hd']}{loai}")
-        lines.append(f"Thời gian: {datetime.now().strftime('%H:%M %d/%m/%Y')}")
+            groups.setdefault(it["loai"] or "Khác", []).append(it["hd"])
+        lines = [f"⚠️ {alert['title'].upper()}", f"Em có {len(items)} hợp đồng cần xử lý ngay:"]
+        for loai, hds in groups.items():
+            lines += ["", f"{loai} ({len(hds)} HĐ)"] + [f"• HĐ: {hd}" for hd in hds]
+        lines += ["", random.choice(DONG_VIEN)]
         out[phone] = (row, "\n".join(lines))
     return out, missing
 
@@ -259,8 +272,8 @@ def zalo_send(page, phone, message):
     page.evaluate("""(t) => { const el = document.querySelector('#richInput'); el.focus();
         const dt = new DataTransfer(); dt.setData('text/plain', t);
         el.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true})); }""", message)
-    first = message.strip().split("\n")[0][:20]
-    if first not in (box.inner_text() or ""):
+    page.wait_for_timeout(300)
+    if not (box.inner_text() or "").strip():
         page.keyboard.insert_text(message.replace("\n", " "))
     page.wait_for_timeout(400)
     page.keyboard.press("Enter")
