@@ -413,7 +413,7 @@ def build_data():
         pl = plan.get(code)
         if pl:
             tgt = sum(SHIFT_DAY.get(pl.get(d, ""), 0) for d in range(1, today.day + 1))
-            checks[0]["target"], checks[0]["ok"] = f"≥ {tgt:g} (theo lịch)", cong >= tgt - 0.05 * max(tgt, 1)
+            checks[0]["target"], checks[0]["ok"] = f"≥ {tgt:g} (theo lịch)", cong >= tgt - 1e-9
         cal = {}
         for d in range(1, days_in_month + 1):
             c = a.get(d)
