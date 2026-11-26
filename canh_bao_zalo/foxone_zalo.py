@@ -37,6 +37,7 @@ FOXONE_URL = os.environ.get("FOXONE_URL", "https://chat.fpt.com/chat/group/69264
 RELOAD_MINUTES = int(os.environ.get("RELOAD_MINUTES", "30"))
 ZALO_URL = "https://chat.zalo.me/"
 POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "15"))
+MAX_RETRY = int(os.environ.get("MAX_RETRY", "5"))
 
 HEADER_RE = re.compile(r"C[ẢA]NH\s*B[ÁA]O[^\n]*TR[ỄE]\s*H[ẸE]N[^\n]*", re.I)
 SECTION_RE = re.compile(r"^\s*(Tri[ểe]n\s*khai|B[ảa]o\s*tr[ìi])\b", re.I)
@@ -316,16 +317,27 @@ def run(dry_run=False):
                     for it in missing:
                         log(f"  [BO QUA] KTV '{it['ktv']}' (HD {it['hd']}) khong co trong ktv.csv")
                     ok = True
+                    sent = state.setdefault("sent", {})
+                    fails = state.setdefault("fails", {})
                     for phone, (row, text) in msgs.items():
                         if dry_run:
                             log(f"  [DRY] -> {row['ho_ten']} ({phone}):\n{text}")
                             continue
+                        rk = f"{k}|{phone}"
+                        if rk in sent:
+                            continue
                         try:
                             zalo_send(zalo, phone, text)
+                            sent[rk] = datetime.now().isoformat(timespec="seconds")
                             log(f"  [OK] Da gui {row['ho_ten']} ({phone})")
                         except Exception as e:
-                            ok = False
-                            log(f"  [LOI] Gui {row['ho_ten']} ({phone}) that bai: {e}")
+                            fails[rk] = fails.get(rk, 0) + 1
+                            log(f"  [LOI] Gui {row['ho_ten']} ({phone}) that bai lan {fails[rk]}: {e}")
+                            if fails[rk] < MAX_RETRY:
+                                ok = False
+                            else:
+                                log(f"  [BO QUA] Da thu {MAX_RETRY} lan, khong gui lai cho {row['ho_ten']}")
+                        save_state(state)
                     if dry_run:
                         dry_seen.add(k)
                     elif ok:
