@@ -617,10 +617,12 @@ def build_data():
 
     ton, trend, ton_meta = build_ton(acc_to_code)
     live, live_trend, live_meta, ton_warn = get_ton_live(acc_to_code)
-    trend = dict(sorted({**trend, **live_trend}.items()))
     # so lieu Inside luu tam cu hon file Excel tai ve trong ngay thi dung file Excel
     newer_file = bool(live_meta and live_meta["cached"] and ton_meta and ton_meta["date"] == live_meta["date"]
                       and to_dt(ton_meta["exported"]) > to_dt(live_meta["exported"]))
+    if newer_file:
+        live_trend = {d: v for d, v in live_trend.items() if d != live_meta["date"]}
+    trend = dict(sorted({**trend, **live_trend}.items()))
     if live is not None and not newer_file:
         ton, ton_meta = live, live_meta
     chk, chk_meta = build_checklist(acc_to_code)
