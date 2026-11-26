@@ -293,6 +293,7 @@ def run(dry_run=False):
         log(f"Da mo fchat + Zalo. Neu chua dang nhap, hay dang nhap trong cua so Chrome. Kiem tra moi {POLL_SECONDS}s.")
         fchat.bring_to_front()
         last_reload = time.time()
+        dry_seen = set()
         while True:
             try:
                 if time.time() - last_reload > RELOAD_MINUTES * 60:
@@ -308,7 +309,7 @@ def run(dry_run=False):
                     save_state(state)
                     log(f"Lan dau: danh dau {len(alerts)} canh bao cu la da xem (khong gui lai).")
                 for a, k in zip(alerts, alert_keys(alerts)):
-                    if k in state["seen"]:
+                    if k in state["seen"] or k in dry_seen:
                         continue
                     log(f"Canh bao moi: {a['title']} — {len(a['items'])} HD")
                     msgs, missing = build_messages(a, ktv_map)
@@ -325,7 +326,9 @@ def run(dry_run=False):
                         except Exception as e:
                             ok = False
                             log(f"  [LOI] Gui {row['ho_ten']} ({phone}) that bai: {e}")
-                    if ok:
+                    if dry_run:
+                        dry_seen.add(k)
+                    elif ok:
                         state["seen"][k] = datetime.now().isoformat(timespec="seconds")
                         save_state(state)
                     fchat.bring_to_front()
