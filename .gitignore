@@ -11,3 +11,7 @@ dvkh_history.json
 sync_status.json
 sync_trigger_last.txt
 sync_server.log
+canh_bao_zalo/zalo_profile/
+canh_bao_zalo/venv/
+canh_bao_zalo/sent_state.json
+canh_bao_zalo/foxone_zalo.log
