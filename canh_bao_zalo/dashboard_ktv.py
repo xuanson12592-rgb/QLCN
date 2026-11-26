@@ -142,6 +142,14 @@ def fetch_lichtruc_raw():
     today = datetime.date.today()
     with sync_playwright() as p:
         ctx = p.chromium.connect_over_cdp(CDP_URL).contexts[0]
+        # Mo lai "Lich truc" tu menu inside.fpt.net de lam moi phien partner.fpt.net (het han sau vai phut)
+        left = next((f for pg in ctx.pages for f in pg.frames if "left.asp" in f.url.lower()), None)
+        if left:
+            try:
+                left.locator("a", has_text="Lịch trực").first.click(timeout=15000)
+                left.page.wait_for_timeout(6000)
+            except Exception as e:
+                log(f"[LOI] mo menu Lich truc: {e}")
         fr = next((f for pg in ctx.pages for f in pg.frames if "divisionthejob" in f.url.lower()), None)
         own = None
         if fr is None:
