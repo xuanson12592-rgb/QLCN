@@ -575,7 +575,7 @@ def build_data():
         warns.append("Không tìm thấy file bao_cao_chi_tiet_ton__*.xlsx trong Downloads.")
     return {
         "generated": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"), "today": today.day, "month": today.month,
-        "year": today.year, "days": days_in_month, "kpi": kpi, "people": people, "trend_dates": list(trend),
+        "year": today.year, "days": days_in_month, "kpi": {k: v for k, v in kpi.items() if k != "pbi_key"}, "people": people, "trend_dates": list(trend),
         "ton_meta": ton_meta, "chk_meta": chk_meta, "plan_meta": plan_meta, "mypt_at": mypt.get("fetched_at"), "warns": warns,
         "pbi_at": (pbi or {}).get("fetched_at"), "kpi_defs": [[n, op, t, k] for n, _, op, t, k in KPI_DEFS],
     }
