@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="600">
+<title>Dashboard 16 KTV</title>
+<style>
+:root{--bg:#f4f6f9;--card:#fff;--line:#e3e7ee;--text:#1f2937;--muted:#6b7280;--ok:#16a34a;--bad:#dc2626;--warn:#d97706;--pri:#0e7490}
+*{box-sizing:border-box}body{margin:0;font-family:Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+header{background:var(--pri);color:#fff;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+header h1{margin:0;font-size:20px}header .meta{font-size:12px;opacity:.9}
+.wrap{padding:16px 20px;max-width:1500px;margin:0 auto}
+.warn{background:#fff7ed;border:1px solid #fdba74;color:#9a3412;padding:8px 12px;border-radius:6px;margin-bottom:8px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.card .v{font-size:26px;font-weight:700}.card .l{color:var(--muted);font-size:12px}
+.tabs{display:flex;gap:4px;border-bottom:2px solid var(--line);margin-bottom:12px}
+.tabs button{border:0;background:none;padding:10px 16px;font-size:14px;cursor:pointer;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-2px}
+.tabs button.on{color:var(--pri);border-color:var(--pri);font-weight:600}
+.panel{display:none}.panel.on{display:block}
+table{border-collapse:collapse;width:100%;background:var(--card);border:1px solid var(--line)}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+th{background:#f8fafc;font-size:12px;color:var(--muted);position:sticky;top:0;cursor:pointer;white-space:nowrap}
+td.n,th.n{text-align:center}
+.ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}
+.pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600}
+.p-full{background:#dcfce7;color:#166534}.p-part{background:#fef3c7;color:#92400e}.p-off{background:#e5e7eb;color:#374151}.p-miss{background:#fee2e2;color:#991b1b}.p-none,.p-future{background:#f3f4f6;color:#9ca3af}
+.score{font-weight:700;padding:3px 8px;border-radius:6px}
+.cal td{padding:0;text-align:center;font-size:11px;min-width:30px;height:30px;border:1px solid #fff}
+.cal td.nm{text-align:left;padding:0 8px;min-width:170px;font-size:13px;background:#fff;border-bottom:1px solid var(--line)}
+.cal th{text-align:center;padding:4px 2px;cursor:default}.cal th.td{background:var(--pri);color:#fff}
+.c-full{background:#86efac}.c-part{background:#fde68a}.c-off{background:#d1d5db}.c-miss{background:#fca5a5}.c-none{background:#f9fafb}.c-future{background:#f9fafb;color:#9ca3af}
+.legend span{display:inline-flex;align-items:center;gap:4px;margin-right:14px;font-size:12px}.legend i{width:14px;height:14px;display:inline-block;border-radius:3px}
+.ktv-box{background:var(--card);border:1px solid var(--line);border-radius:8px;margin-bottom:12px}
+.ktv-box h3{margin:0;padding:10px 14px;font-size:15px;display:flex;justify-content:space-between;cursor:pointer;border-bottom:1px solid var(--line)}
+.ktv-box table{border:0}.late td{background:#fef2f2}
+select,input{padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:14px}
+.toolbar{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center}
+.muted{color:var(--muted);font-size:12px}
+svg.spark{vertical-align:middle}
+</style>
+</head>
+<body>
+<header><h1>Dashboard 16 KTV — Lịch trực · Tồn ca · KPI</h1><div class="meta" id="meta"></div></header>
+<div class="wrap">
+<div id="warns"></div>
+<div class="cards" id="cards"></div>
+<div class="tabs">
+ <button data-t="kpi" class="on">Tổng hợp KPI</button>
+ <button data-t="cal">Lịch trực / điểm danh</button>
+ <button data-t="ton">Tồn ca</button>
+ <button data-t="cfg">Chỉ tiêu &amp; nguồn dữ liệu</button>
+</div>
+<div class="panel on" id="p-kpi"></div>
+<div class="panel" id="p-cal"></div>
+<div class="panel" id="p-ton"></div>
+<div class="panel" id="p-cfg"></div>
+</div>
+<script>
+const D = /*__DATA__*/null;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const ST = {full:"Đi làm", part:"Thiếu công", off:"Nghỉ", miss:"Chưa điểm danh", none:"-", future:""};
+const P = D.people;
+
+$("#meta").innerHTML = `Cập nhật: <b>${D.generated}</b> · Tháng ${D.month}/${D.year}`;
+$("#warns").innerHTML = D.warns.map(w => `<div class="warn">${esc(w)}</div>`).join("");
+
+const working = P.filter(p => ["full","part"].includes(p.today.st)).length;
+const off = P.filter(p => p.today.st === "off").length;
+const totTon = P.reduce((s,p) => s + p.ton.length, 0);
+const totLate = P.reduce((s,p) => s + p.late, 0);
+const maxScore = P[0] ? P[0].checks.length : 0;
+const fullKpi = P.filter(p => p.score === maxScore).length;
+$("#cards").innerHTML = [
+  [P.length, "KTV theo dõi"],
+  [`${working}/${P.length}`, `Đã điểm danh hôm nay (${off} nghỉ)`],
+  [totTon, "Tổng tồn ca" + (D.ton_meta ? ` (${D.ton_meta.date})` : "")],
+  [`<span class="${totLate ? "bad" : "ok"}">${totLate}</span>`, "HĐ quá hẹn xanh"],
+  [`${fullKpi}/${P.length}`, "KTV đạt đủ KPI"],
+].map(([v,l]) => `<div class="card"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+
+function spark(arr){
+  if (!arr.length) return "";
+  const w = 80, h = 22, m = Math.max(...arr, 1);
+  const pts = arr.map((v,i) => `${arr.length===1 ? w/2 : i*w/(arr.length-1)},${h-2-(v/m)*(h-4)}`).join(" ");
+  return `<svg class="spark" width="${w}" height="${h}"><polyline fill="none" stroke="#0e7490" stroke-width="2" points="${pts}"/></svg>`;
+}
+function scoreColor(s){ const r = s/maxScore; return r === 1 ? "background:#dcfce7;color:#166534" : r >= .67 ? "background:#fef3c7;color:#92400e" : "background:#fee2e2;color:#991b1b"; }
+
+// ---- KPI table ----
+let sortKey = "score", sortDir = 1;
+function renderKpi(){
+  const cols = [
+    ["#", null], ["KTV", "name"], ["Hôm nay", "todaySt"],
+    ...P[0].checks.map((c,i) => [`${c.name}<br><span class="muted">${esc(c.target)}</span>`, "c"+i]),
+    ["Xu hướng tồn", null], ["Điểm KPI", "score"],
+  ];
+  const val = (p,k) => k === "name" ? p.name : k === "todaySt" ? p.today.st : k === "score" ? p.score
+    : (v => typeof v === "string" ? parseFloat(v) || 0 : v)(p.checks[+k.slice(1)].val);
+  const rows = [...P].sort((a,b) => { const x = val(a,sortKey), y = val(b,sortKey); return (x > y ? 1 : x < y ? -1 : 0) * sortDir; });
+  $("#p-kpi").innerHTML = `<table><thead><tr>${cols.map(([h,k]) => `<th class="n" data-k="${k||""}">${h}</th>`).join("")}</tr></thead><tbody>${
+    rows.map((p,i) => `<tr><td class="n">${i+1}</td>
+      <td><b>${esc(p.name)}</b><br><span class="muted">${p.code} · ${esc(p.acc)} · ${esc(p.phone)}</span></td>
+      <td class="n"><span class="pill p-${p.today.st}">${ST[p.today.st] || "-"}</span><br><span class="muted">${esc(p.today.time)}</span></td>
+      ${p.checks.map(c => `<td class="n ${c.ok ? "ok" : "bad"}">${esc(c.val)}</td>`).join("")}
+      <td class="n">${spark(p.trend)}</td>
+      <td class="n"><span class="score" style="${scoreColor(p.score)}">${p.score}/${maxScore}</span></td></tr>`).join("")
+  }</tbody></table><p class="muted">Bấm tiêu đề cột để sắp xếp. Xanh = đạt chỉ tiêu, đỏ = chưa đạt. Ngày công tính theo điểm danh ho.mypt.vn đến hôm nay; chỉ tiêu chia theo số ngày đã qua trong tháng.</p>`;
+  document.querySelectorAll("#p-kpi th[data-k]").forEach(th => th.onclick = () => {
+    const k = th.dataset.k; if (!k) return; sortDir = sortKey === k ? -sortDir : (k === "name" ? 1 : -1); sortKey = k; renderKpi();
+  });
+}
+sortDir = -1; renderKpi();
+
+// ---- Calendar ----
+(function(){
+  const days = Array.from({length: D.days}, (_,i) => i+1);
+  const wd = d => ["CN","T2","T3","T4","T5","T6","T7"][new Date(D.year, D.month-1, d).getDay()];
+  $("#p-cal").innerHTML = `<div class="legend" style="margin-bottom:8px">
+    <span><i class="c-full"></i>Đi làm đủ công</span><span><i class="c-part"></i>Thiếu công</span>
+    <span><i class="c-off"></i>Nghỉ</span><span><i class="c-miss"></i>Có lịch nhưng chưa điểm danh</span>
+    <span class="muted">Chữ trong ô = ca theo lịch trực (${esc(D.plan_meta ? D.plan_meta.file : "chưa có file lịch trực")}); di chuột để xem giờ điểm danh.</span></div>
+  <div style="overflow-x:auto"><table class="cal"><thead><tr><th style="text-align:left">KTV</th>${
+    days.map(d => `<th class="${d===D.today ? "td" : ""}">${d}<br>${wd(d)}</th>`).join("")}<th>Công</th><th>Nghỉ</th></tr></thead><tbody>${
+    P.map(p => `<tr><td class="nm">${esc(p.name)}</td>${days.map(d => { const c = p.cal[d];
+      const tip = `${d}/${D.month}: ${ST[c.st] || ""}${c.time ? " · điểm danh " + c.time : ""}${c.f != null ? " · hệ số " + c.f : ""}${c.plan ? " · lịch " + c.plan : ""}`;
+      return `<td class="c-${c.st}" title="${esc(tip)}">${esc(c.st === "off" ? "N" : c.plan || "")}</td>`; }).join("")}
+      <td class="n"><b>${p.cong}</b></td><td class="n">${Object.values(p.cal).filter(c => c.st === "off").length}</td></tr>`).join("")
+  }</tbody></table></div>`;
+})();
+
+// ---- Ton ca ----
+function renderTon(){
+  const f = $("#tonKtv") ? $("#tonKtv").value : "";
+  const onlyLate = $("#tonLate") ? $("#tonLate").checked : false;
+  const q = $("#tonQ") ? $("#tonQ").value.trim().toLowerCase() : "";
+  const list = P.filter(p => !f || p.code === f).sort((a,b) => b.late - a.late || b.ton.length - a.ton.length);
+  const body = list.map(p => {
+    const rows = p.ton.filter(x => (!onlyLate || x.late) && (!q || (x.hd + " " + x.kh).toLowerCase().includes(q)));
+    if ((onlyLate || q) && !rows.length) return "";
+    return `<div class="ktv-box"><h3><span>${esc(p.name)} <span class="muted">${esc(p.acc)}</span></span>
+      <span>${p.ton.length} HĐ · <span class="${p.late ? "bad" : "ok"}">${p.late} quá hẹn</span></span></h3>
+      ${rows.length ? `<table><thead><tr><th>Số HĐ</th><th>Khách hàng</th><th>Tình trạng</th><th>Loại</th><th>Hẹn xanh</th><th>Hẹn đỏ</th><th>Ghi chú</th></tr></thead><tbody>${
+        rows.map(x => `<tr class="${x.late ? "late" : ""}"><td><b>${esc(x.hd)}</b></td><td>${esc(x.kh)}</td><td>${esc(x.status)}</td><td>${esc(x.type)}</td>
+          <td class="${x.late ? "bad" : ""}">${esc(x.xanh)}${x.late ? " ⚠" : ""}</td><td class="${x.red ? "bad" : ""}">${esc(x.do)}</td><td class="muted">${esc(x.note)}</td></tr>`).join("")
+      }</tbody></table>` : `<div class="muted" style="padding:10px 14px">Không có HĐ tồn.</div>`}</div>`;
+  }).join("");
+  $("#tonList").innerHTML = body || `<div class="muted">Không có dữ liệu phù hợp.</div>`;
+}
+$("#p-ton").innerHTML = `<div class="toolbar">
+  <select id="tonKtv"><option value="">Tất cả 16 KTV</option>${P.map(p => `<option value="${p.code}">${esc(p.name)}</option>`).join("")}</select>
+  <label><input type="checkbox" id="tonLate"> Chỉ HĐ quá hẹn</label>
+  <input id="tonQ" placeholder="Tìm số HĐ / tên KH">
+  <span class="muted">${D.ton_meta ? `Nguồn: ${esc(D.ton_meta.file)} (xuất lúc ${esc(D.ton_meta.exported)}). Quá hẹn = hẹn xanh trước thời điểm xuất báo cáo.` : ""}</span></div><div id="tonList"></div>`;
+["tonKtv","tonLate","tonQ"].forEach(id => $("#"+id).addEventListener("input", renderTon));
+renderTon();
+
+// ---- Config ----
+const K = D.kpi;
+$("#p-cfg").innerHTML = `<div class="card"><h3 style="margin-top:0">Chỉ tiêu KPI (sửa trong file kpi.json)</h3><table><tbody>
+  <tr><td>Ngày công chuẩn / tháng</td><td>${K.ngay_cong_chuan_thang} công (chia theo số ngày đã qua)</td></tr>
+  <tr><td>Đúng giờ</td><td>Điểm danh trước ${esc(K.gio_vao_ca)} ≥ ${K.dung_gio_min_pct}% số ngày đi làm</td></tr>
+  <tr><td>Tồn ca tối đa</td><td>${K.ton_ca_max} HĐ</td></tr>
+  <tr><td>Quá hẹn xanh tối đa</td><td>${K.qua_hen_max}</td></tr>
+  <tr><td>Checklist ≥ 24h tối đa</td><td>${K.checklist24_max}</td></tr>
+  <tr><td>Checklist lặp tối đa</td><td>${K.checklist_lap_max}</td></tr></tbody></table>
+  <h3>Nguồn dữ liệu</h3><table><tbody>
+  <tr><td>Nhân viên, điểm danh</td><td>ho.mypt.vn — lấy lúc ${esc(D.mypt_at || "chưa có")}</td></tr>
+  <tr><td>Tồn ca</td><td>${D.ton_meta ? esc(D.ton_meta.file) : "chưa có"} · xu hướng từ ${D.trend_dates.length} báo cáo (${esc(D.trend_dates.join(", "))})</td></tr>
+  <tr><td>Checklist ≥ 24h / lặp</td><td>${D.chk_meta ? esc(D.chk_meta.file) + " (" + esc(D.chk_meta.date) + ")" : "chưa có"}</td></tr>
+  <tr><td>Lịch trực</td><td>${D.plan_meta ? esc(D.plan_meta.file) : "chưa có"}</td></tr></tbody></table></div>`;
+
+function showTab(t){
+  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x.dataset.t === t));
+  document.querySelectorAll(".panel").forEach(x => x.classList.toggle("on", x.id === "p-" + t));
+}
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => { showTab(b.dataset.t); history.replaceState(null, "", "#" + b.dataset.t); });
+if (location.hash && $("#p-" + location.hash.slice(1))) showTab(location.hash.slice(1));
+</script>
+</body>
+</html>

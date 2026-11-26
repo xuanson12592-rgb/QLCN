@@ -15,3 +15,6 @@ canh_bao_zalo/zalo_profile/
 canh_bao_zalo/venv/
 canh_bao_zalo/sent_state.json
 canh_bao_zalo/foxone_zalo.log
+canh_bao_zalo/kpi.json
+canh_bao_zalo/mypt_cache.json
+canh_bao_zalo/dashboard_ktv.html
